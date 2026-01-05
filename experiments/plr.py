@@ -313,9 +313,9 @@ def main(config=None):
         log_dict.update(_aggregate_per_size(stats["eval_solves"], "eval_aggregate/solve_rate"))
 
         if config["EVAL_ON_SAMPLED"]:
-            log_dict.update({"eval/mean_eval_return_sampled": stats["eval_dr_returns"].mean()})
-            log_dict.update({"eval/mean_eval_solve_rate_sampled": stats["eval_dr_solve_rates"].mean()})
-            log_dict.update({"eval/mean_eval_eplen_sampled": stats["eval_dr_eplen"].mean()})
+            log_dict.update({"eval/mean_eval_return_sampled": stats["eval/mean_eval_return_sampled"].mean()})
+            log_dict.update({"eval/mean_eval_solve_rate_sampled": stats["eval/mean_eval_solve_sampled"].mean()})
+            log_dict.update({"eval/mean_eval_eplen_sampled": stats["eval/mean_eval_eplen_sampled"].mean()})
 
         # level sampler
         log_dict.update(train_state_info["log"])

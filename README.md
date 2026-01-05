@@ -166,6 +166,8 @@ To run experiments with default parameters run any of the following:
 python3 experiments/sfl.py
 python3 experiments/plr.py
 python3 experiments/ppo.py
+
+python3 experiments/plr.py ued.replay_prob=0 # for DR
 ```
 
 We use [hydra](https://hydra.cc/) for managing our configs.  See the `configs/` folder for all the hydra configs that will be used by default, or the [docs](./docs/configs.md).
