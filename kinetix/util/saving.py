@@ -277,7 +277,10 @@ def save_params_to_wandb(params, timesteps, config):
 
 
 def save_dict(dict, timesteps, config, name, save_to_wandb: bool = True):
-    timesteps = f"{timesteps / 1e9:.1f}B"
+    if config["checkpoint_human_numbers"]:
+        timesteps = f"{timesteps / 1e9:.1f}B"
+    else:
+        timesteps = str(int(timesteps))
     run_name = config["run_name"] + "-" + str(config["random_hash"]) + "-" + str(timesteps)
     save_dir = os.path.join(config["save_path"], run_name)
     os.makedirs(save_dir, exist_ok=True)

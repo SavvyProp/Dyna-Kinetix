@@ -1,0 +1,56 @@
+defaults:
+  - env: symbolic
+  - env_size: custom
+  - learning:
+      - ppo-base
+      - ppo-rnn
+  - misc: misc
+  - eval: eval_auto
+  - train_levels: standup
+  - model:
+      - model-base
+      - model-transformer
+      - model-perm-invariant-mlp
+  - _self_
+
+env:
+  action_type: continuous
+  observation_type: symbolic_flat
+  dense_reward_scale: 1.0
+  dummy_env: false
+  residual_torque_limit_nm: 2.5
+  total_torque_limit_nm: 20.0
+  energy_penalty_coefficient: 0.001
+
+env_size:
+  custom_path: l/simple_standup.json
+  env_size_type: custom
+  env_size_name: custom
+  frame_skip: 1
+
+learning:
+  # 256 PPO updates: 64 environments x 64 steps x 256 = 1,048,576.
+  total_timesteps: 1048576
+  num_train_envs: 64
+  num_steps: 64
+  num_minibatches: 8
+  update_epochs: 4
+
+misc:
+  use_wandb: false
+  save_policy: true
+  save_path: checkpoints/dynak/residual_standup
+  final_checkpoint_path: checkpoints/dynak/residual_standup/final.pbz2
+  checkpoint_save_freq: 64
+  should_log_videos: false
+
+eval:
+  eval_levels: auto
+  eval_num_attempts: 1
+  eval_freq: 0
+  EVAL_ON_SAMPLED: false
+
+model:
+  recurrent_model: false
+
+seed: 0

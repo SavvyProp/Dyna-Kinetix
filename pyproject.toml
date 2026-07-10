@@ -55,4 +55,4 @@ Homepage = "https://github.com/FLAIROx/Kinetix"
 Issues = "https://github.com/FLAIROx/Kinetix/Issues"
 
 [tool.setuptools.packages.find]
-include=["kinetix*"]
+include = ["kinetix*", "dynak*"]

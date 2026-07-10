@@ -1,0 +1,3 @@
+train_level_mode: list
+train_levels_list:
+  - l/simple_standup.json

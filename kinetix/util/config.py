@@ -100,6 +100,17 @@ def normalise_config(config, name, editor_config=False, save_config: bool = True
     config["action_type"] = ActionType.from_string(config["action_type"])
     if "save_path" in config and config["save_path"] == "None":
         config["save_path"] = None
+
+    # Both training scripts and the editor construct StaticEnvParams from the
+    # selected predefined size.  The editor does not need the training-only
+    # bookkeeping below, but it still needs these shape-count settings.
+    if config.get("env_size_type", "predefined") == "predefined":
+        _, updated_config = static_env_params_from_size(config["env_size_name"], return_dict=True)
+        for k, v in updated_config.items():
+            # A configuration may explicitly override a size preset value
+            # (the editor sets frame_skip=1, for example).
+            config.setdefault(k, v)
+
     if not editor_config:
         config[
             "env_name"
@@ -159,12 +170,6 @@ def normalise_config(config, name, editor_config=False, save_config: bool = True
         if "override_model_width" in config and config["override_model_width"] > 0:
             config["actor_width"] = config["override_model_width"]
             config["critic_width"] = config["override_model_width"]
-
-        if config.get("env_size_type", "predefined") == "predefined":
-            _, updated_config = static_env_params_from_size(config["env_size_name"], return_dict=True)
-            for k, v in updated_config.items():
-                assert k not in config, f"Key {k} found in config"
-                config[k] = v
 
     return config
 

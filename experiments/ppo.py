@@ -129,7 +129,13 @@ def get_train_state_from_config(config, rng: jax.Array, env: KinetixEnv, env_par
     return train_state
 
 
-def make_train(config, ppo_env_params, static_env_params, return_update_step_and_init_state: bool = False):
+def make_train(
+    config,
+    ppo_env_params,
+    static_env_params,
+    return_update_step_and_init_state: bool = False,
+    env_factory=make_env,
+):
     NUM_GPUS = jax.device_count()
     mesh = jax.sharding.Mesh(jax.devices(), axis_names=["devices"])
 
@@ -143,13 +149,8 @@ def make_train(config, ppo_env_params, static_env_params, return_update_step_and
     reset_fn = make_reset_fn_from_config(config, ppo_env_params, static_env_params)
 
     eval_levels, eval_static_env_params = load_evaluation_levels(config["eval_levels"])
-    ppo_env = make_env(config, static_env_params, ppo_env_params, reset_fn)
-    eval_env = make_env(config, eval_static_env_params, ppo_env_params, None)
-
-    NUM_EVAL_DR_LEVELS = 512
-    DR_EVAL_LEVELS = get_randomly_sampled_eval_levels(
-        config, ppo_env_params, static_env_params, ppo_env, NUM_EVAL_DR_LEVELS
-    )
+    ppo_env = env_factory(config, static_env_params, ppo_env_params, reset_fn)
+    eval_env = env_factory(config, eval_static_env_params, ppo_env_params, None)
 
     all_eval_specs = {
         "hand_designed": EvalSpec(
@@ -159,14 +160,23 @@ def make_train(config, ppo_env_params, static_env_params, return_update_step_and
             plot_videos=True,
             num_envs_to_video=-1,
         ),
-        "sampled": EvalSpec(
-            levels_to_eval_on=DR_EVAL_LEVELS,
-            number_of_levels=NUM_EVAL_DR_LEVELS,
-            level_names=[f"DR/{str(i).zfill(3)}" for i in range(NUM_EVAL_DR_LEVELS)],
+    }
+    if config["EVAL_ON_SAMPLED"]:
+        num_eval_dr_levels = 512
+        dr_eval_levels = get_randomly_sampled_eval_levels(
+            config,
+            ppo_env_params,
+            static_env_params,
+            ppo_env,
+            num_eval_dr_levels,
+        )
+        all_eval_specs["sampled"] = EvalSpec(
+            levels_to_eval_on=dr_eval_levels,
+            number_of_levels=num_eval_dr_levels,
+            level_names=[f"DR/{str(i).zfill(3)}" for i in range(num_eval_dr_levels)],
             plot_videos=True,
             num_envs_to_video=10,
-        ),
-    }
+        )
 
     time_start = time.time()
 
@@ -384,13 +394,23 @@ def make_train(config, ppo_env_params, static_env_params, return_update_step_and
                         )
                         loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
                         loss_actor = loss_actor.mean()
-                        entropy = pi.entropy().mean()
+                        entropy_per_transition = pi.entropy()
+                        entropy = entropy_per_transition.mean()
 
-                        entropy_disentangled = pi.entropy_disentangled()
                         action_mask = traj_batch.valid_action_mask
-                        entropy_disentangled_mean = (
-                            (entropy_disentangled * action_mask).sum(axis=-1) / jnp.maximum(1, action_mask.sum(axis=-1))
-                        ).mean()
+                        if hasattr(pi, "entropy_disentangled"):
+                            entropy_disentangled = pi.entropy_disentangled()
+                        else:
+                            # Distrax's diagonal continuous distribution
+                            # exposes only the summed entropy. Splitting it
+                            # evenly is sufficient for this logging-only
+                            # per-action metric; PPO still uses the exact
+                            # total entropy above for its loss.
+                            entropy_disentangled = jnp.broadcast_to(
+                                (entropy_per_transition / action_mask.shape[-1])[..., None],
+                                action_mask.shape,
+                            )
+                        entropy_disentangled_mean = ((entropy_disentangled * action_mask).sum(axis=-1) / jnp.maximum(1, action_mask.sum(axis=-1))).mean()
 
                         total_loss = loss_actor + config["vf_coef"] * value_loss - config["ent_coef"] * entropy
 
@@ -486,10 +506,16 @@ def make_train(config, ppo_env_params, static_env_params, return_update_step_and
             )
             update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config["update_epochs"])
             train_state = update_state[0]
-            metric = jax.tree.map(
-                lambda x: (x * traj_batch.info["returned_episode"]).sum() / traj_batch.info["returned_episode"].sum(),
-                traj_batch.info,
-            )
+            episode_mask = traj_batch.info["returned_episode"]
+
+            def _episode_metric(x):
+                expanded_mask = episode_mask.reshape(episode_mask.shape + (1,) * (x.ndim - episode_mask.ndim))
+                return (x * expanded_mask).sum() / jnp.maximum(
+                    1,
+                    episode_mask.sum(),
+                )
+
+            metric = jax.tree.map(_episode_metric, traj_batch.info)
             metrics_to_log = jax.tree.map(lambda x: x.mean(), loss_info[1])
             metrics_to_log["metrics/gns"] = metrics_to_log["metrics/s"] / metrics_to_log["metrics/g_squared"]
             rng = update_state[-1]
