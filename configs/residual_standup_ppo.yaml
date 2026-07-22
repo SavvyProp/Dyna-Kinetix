@@ -1,5 +1,5 @@
 defaults:
-  - env: symbolic
+  - env: pixels
   - env_size: custom
   - learning:
       - ppo-base
@@ -15,15 +15,27 @@ defaults:
 
 env:
   action_type: continuous
-  observation_type: symbolic_flat
+  observation_type: pixels
   dense_reward_scale: 1.0
   dummy_env: false
   residual_torque_limit_nm: 2.5
   total_torque_limit_nm: 20.0
   energy_penalty_coefficient: 0.001
+  underlying_controller: pd
+  # Sample independent per-joint controller parameters once per episode.
+  # 0.2 gives uniform values between 80% and 120% of each nominal value.
+  pd_gain_randomization_fraction: 0.2
+  bang_bang_torque_randomization_fraction: 0.2
+  # Add independent zero-mean noise to each active controller torque per step.
+  controller_torque_noise_std_nm: 0.2
+  # Succeed only after the complete movable arm remains nearly static with
+  # its role-1 end effector inside the role-2 goal region for one second.
+  goal_hold_duration_seconds: 1.0
+  goal_linear_velocity_threshold_mps: 0.1
+  goal_angular_velocity_threshold_rad_s: 0.1
 
 env_size:
-  custom_path: l/simple_standup.json
+  custom_path: l/standup_goal.json
   env_size_type: custom
   env_size_name: custom
   frame_skip: 1

@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--level",
-        default="l/simple_standup.json",
+        default="l/standup_goal.json",
         help="Kinetix level JSON to evaluate (default: %(default)s).",
     )
     parser.add_argument(
@@ -132,6 +132,28 @@ def main() -> None:
         residual_torque_limit_nm=config["residual_torque_limit_nm"],
         total_torque_limit_nm=config["total_torque_limit_nm"],
         energy_penalty_coefficient=config["energy_penalty_coefficient"],
+        underlying_controller=config.get("underlying_controller", "pd"),
+        pd_gain_randomization_fraction=config.get(
+            "pd_gain_randomization_fraction",
+            0.2,
+        ),
+        bang_bang_torque_randomization_fraction=config.get(
+            "bang_bang_torque_randomization_fraction",
+            0.2,
+        ),
+        controller_torque_noise_std_nm=config.get(
+            "controller_torque_noise_std_nm",
+            0.2,
+        ),
+        goal_hold_duration_seconds=config.get("goal_hold_duration_seconds", 1.0),
+        goal_linear_velocity_threshold_mps=config.get(
+            "goal_linear_velocity_threshold_mps",
+            0.1,
+        ),
+        goal_angular_velocity_threshold_rad_s=config.get(
+            "goal_angular_velocity_threshold_rad_s",
+            0.1,
+        ),
     )
     network = make_network_from_config(env, env_params, config)
     policy_params = checkpoint["params"]
@@ -215,6 +237,7 @@ def main() -> None:
     residual_torque_nm = noop_action
     total_torque_nm = noop_action
     energy_penalty = 0.0
+    goal_hold_time_seconds = 0.0
 
     while running:
         exit_after_frame = False
@@ -241,6 +264,7 @@ def main() -> None:
                     residual_torque_nm = noop_action
                     total_torque_nm = noop_action
                     energy_penalty = 0.0
+                    goal_hold_time_seconds = 0.0
 
         if running and (not paused or single_step) and not done:
             rng, policy_rng, step_rng = jax.random.split(rng, 3)
@@ -265,6 +289,7 @@ def main() -> None:
             residual_torque_nm = info["residual_torque_nm"]
             total_torque_nm = info["total_torque_nm"]
             energy_penalty = float(info["energy_penalty"])
+            goal_hold_time_seconds = float(info["goal_hold_time_seconds"])
             simulation_steps += 1
 
             if done:
@@ -282,8 +307,10 @@ def main() -> None:
         total_text = np.asarray(total_torque_nm).round(2).tolist()
         pygame.display.set_caption(
             f"Residual standup policy | {status} | step={int(state.timestep)} | "
+            f"controller={env.underlying_controller_name} | "
             f"return={episode_return:.3f} | reward={step_reward:.3f} | "
             f"value={value:.2f} | residual={residual_text} | total={total_text} | "
+            f"hold={goal_hold_time_seconds:.2f}/{env.goal_hold_duration_seconds:.2f}s | "
             f"energy cost={energy_penalty:.5f}"
         )
         pygame.display.flip()

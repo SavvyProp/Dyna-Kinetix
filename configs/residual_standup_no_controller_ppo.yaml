@@ -1,0 +1,10 @@
+defaults:
+  - residual_standup_ppo
+  - _self_
+
+env:
+  underlying_controller: none
+
+misc:
+  save_path: checkpoints/dynak/residual_standup_no_controller
+  final_checkpoint_path: checkpoints/dynak/residual_standup_no_controller/final.pbz2

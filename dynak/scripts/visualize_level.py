@@ -12,12 +12,13 @@ from matplotlib import pyplot as plt
 from kinetix.util import load_from_json_file
 from kinetix.render import make_render_pixels
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "level",
         nargs="?",
-        default="l/simple_standup.json",
+        default="l/standup_goal.json",
         help=(
             "Level JSON to render. Relative names such as 'l/my_level.json' "
             "are resolved from kinetix/levels/ (default: %(default)s)."

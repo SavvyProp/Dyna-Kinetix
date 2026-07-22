@@ -1,9 +1,9 @@
 """Kinetix environment with residual torque control for the standup task.
 
 The public action is a three-element vector of residual joint torques in N*m.
-At every environment step it is added to :func:`stand_pd_with_cutout`, clipped,
-and applied directly to motor bindings 0, 1, and 2.  The regular Kinetix
-velocity motors and thrusters receive zero actions.
+At every environment step it is added to a configurable underlying torque
+controller, clipped, and applied directly to motor bindings 0, 1, and 2.  The
+regular Kinetix velocity motors and thrusters receive zero actions.
 
 The environment follows the same JAX/Gymnax API as ``KinetixEnv`` and can be
 wrapped in Kinetix's ``LogWrapper``.  Its state is an ``EnvState`` subclass so
@@ -31,24 +31,34 @@ from kinetix.environment.spaces import (
     ObservationType,
 )
 
-from dynak.standup.stand_pd import (
-    NUM_STANDUP_JOINTS,
-    get_standup_joint_state,
-    stand_pd_with_cutout,
+from dynak.standup.controllers import (
+    ControllerSpec,
+    DEFAULT_BB_TORQUE_RANDOMIZATION_FRACTION,
+    DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM,
+    DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION,
+    UnderlyingControllerType,
+    resolve_underlying_controller,
 )
+from dynak.standup.stand_pd import NUM_STANDUP_JOINTS, get_standup_joint_state
 
 DEFAULT_RESIDUAL_TORQUE_LIMIT_NM = 2.5
 DEFAULT_TOTAL_TORQUE_LIMIT_NM = 20.0
 DEFAULT_ENERGY_PENALTY_COEFFICIENT = 1e-3
+DEFAULT_GOAL_HOLD_DURATION_SECONDS = 1.0
+DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS = 0.1
+DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S = 0.1
 
 
 @struct.dataclass
 class ResidualTorqueEnvState(EnvState):
-    """Kinetix state plus the PRNG key for this episode's cutout sequence."""
+    """Kinetix state plus residual-standup episode bookkeeping."""
 
     # A default is required because EnvState has fields with defaults.  Reset
     # always replaces this with a real key before the state is returned.
     cutout_key: Optional[jax.Array] = None
+    # Number of consecutive physics substeps for which the arm has satisfied
+    # the in-region and low-velocity goal conditions.
+    goal_hold_steps: int = 0
 
 
 class ResidualTorqueActions(ContinuousActions):
@@ -179,6 +189,23 @@ class ResidualTorqueEnv(KinetixEnv):
         residual_torque_limit_nm: float = DEFAULT_RESIDUAL_TORQUE_LIMIT_NM,
         total_torque_limit_nm: float = DEFAULT_TOTAL_TORQUE_LIMIT_NM,
         energy_penalty_coefficient: float = DEFAULT_ENERGY_PENALTY_COEFFICIENT,
+        underlying_controller: ControllerSpec = UnderlyingControllerType.PD,
+        pd_gain_randomization_fraction: float = (
+            DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION
+        ),
+        bang_bang_torque_randomization_fraction: float = (
+            DEFAULT_BB_TORQUE_RANDOMIZATION_FRACTION
+        ),
+        controller_torque_noise_std_nm: float = (
+            DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM
+        ),
+        goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+        goal_linear_velocity_threshold_mps: float = (
+            DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
+        ),
+        goal_angular_velocity_threshold_rad_s: float = (
+            DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S
+        ),
     ):
         if static_env_params.num_motor_bindings < NUM_STANDUP_JOINTS:
             raise ValueError(
@@ -192,6 +219,22 @@ class ResidualTorqueEnv(KinetixEnv):
             raise ValueError("total_torque_limit_nm must be greater than zero")
         if energy_penalty_coefficient < 0:
             raise ValueError("energy_penalty_coefficient must be non-negative")
+        if not 0.0 <= pd_gain_randomization_fraction < 1.0:
+            raise ValueError("pd_gain_randomization_fraction must be in [0, 1)")
+        if not 0.0 <= bang_bang_torque_randomization_fraction < 1.0:
+            raise ValueError(
+                "bang_bang_torque_randomization_fraction must be in [0, 1)"
+            )
+        if controller_torque_noise_std_nm < 0.0:
+            raise ValueError("controller_torque_noise_std_nm must be non-negative")
+        if goal_hold_duration_seconds <= 0:
+            raise ValueError("goal_hold_duration_seconds must be greater than zero")
+        if goal_linear_velocity_threshold_mps < 0:
+            raise ValueError("goal_linear_velocity_threshold_mps must be non-negative")
+        if goal_angular_velocity_threshold_rad_s < 0:
+            raise ValueError(
+                "goal_angular_velocity_threshold_rad_s must be non-negative"
+            )
 
         action_type = ResidualTorqueActions(
             env_params,
@@ -209,6 +252,29 @@ class ResidualTorqueEnv(KinetixEnv):
         self.residual_torque_limit_nm = float(residual_torque_limit_nm)
         self.total_torque_limit_nm = float(total_torque_limit_nm)
         self.energy_penalty_coefficient = float(energy_penalty_coefficient)
+        (
+            self.underlying_controller_name,
+            self.underlying_controller,
+        ) = resolve_underlying_controller(
+            underlying_controller,
+            pd_gain_randomization_fraction=pd_gain_randomization_fraction,
+            bang_bang_torque_randomization_fraction=(
+                bang_bang_torque_randomization_fraction
+            ),
+            controller_torque_noise_std_nm=controller_torque_noise_std_nm,
+        )
+        self.pd_gain_randomization_fraction = float(pd_gain_randomization_fraction)
+        self.bang_bang_torque_randomization_fraction = float(
+            bang_bang_torque_randomization_fraction
+        )
+        self.controller_torque_noise_std_nm = float(controller_torque_noise_std_nm)
+        self.goal_hold_duration_seconds = float(goal_hold_duration_seconds)
+        self.goal_linear_velocity_threshold_mps = float(
+            goal_linear_velocity_threshold_mps
+        )
+        self.goal_angular_velocity_threshold_rad_s = float(
+            goal_angular_velocity_threshold_rad_s
+        )
         self._physics_noop_action = jnp.zeros(
             static_env_params.num_joints + static_env_params.num_thrusters,
             dtype=jnp.float32,
@@ -230,11 +296,15 @@ class ResidualTorqueEnv(KinetixEnv):
             raise NotImplementedError("No reset function provided")
 
         if isinstance(state, ResidualTorqueEnvState):
-            state = state.replace(cutout_key=cutout_key)
+            state = state.replace(
+                cutout_key=cutout_key,
+                goal_hold_steps=jnp.zeros_like(state.goal_hold_steps),
+            )
         else:
             state = ResidualTorqueEnvState(
                 **state.__dict__,
                 cutout_key=cutout_key,
+                goal_hold_steps=jnp.asarray(0, dtype=jnp.int32),
             )
 
         return self.get_obs(state), state
@@ -252,13 +322,9 @@ class ResidualTorqueEnv(KinetixEnv):
             state,
             self.static_env_params,
         )
-        pd_torque_nm = stand_pd_with_cutout(
-            state,
-            self.static_env_params,
-            state.cutout_key,
-        )
+        controller_torque_nm = self.compute_underlying_torque_nm(state)
         total_torque_nm = jnp.clip(
-            residual_torque_nm + pd_torque_nm,
+            residual_torque_nm + controller_torque_nm,
             -self.total_torque_limit_nm,
             self.total_torque_limit_nm,
         )
@@ -277,9 +343,145 @@ class ResidualTorqueEnv(KinetixEnv):
             env_params,
         )
         info["residual_torque_nm"] = residual_torque_nm
-        info["pd_torque_nm"] = pd_torque_nm
+        info["controller_torque_nm"] = controller_torque_nm
         info["total_torque_nm"] = total_torque_nm
         return observation, state, reward, done, info
+
+    def compute_underlying_torque_nm(
+        self,
+        state: ResidualTorqueEnvState,
+    ) -> jax.Array:
+        """Compute baseline torque; subclasses may override this method."""
+        controller_torque_nm = jnp.asarray(
+            self.underlying_controller(
+                state,
+                self.static_env_params,
+                state.cutout_key,
+            ),
+            dtype=jnp.float32,
+        )
+        if controller_torque_nm.shape != (NUM_STANDUP_JOINTS,):
+            raise ValueError(
+                "Underlying controller must return shape "
+                f"({NUM_STANDUP_JOINTS},); got {controller_torque_nm.shape}"
+            )
+        return controller_torque_nm
+
+    def _standup_goal_metrics(self, state: ResidualTorqueEnvState):
+        """Return geometric and velocity metrics for the standup goal.
+
+        Role-1 polygon centroids are treated as end effectors and role-2
+        polygons as non-physical goal regions.  The point-in-convex-polygon
+        test is independent of collision manifolds, so a goal region can use
+        collision mode 0 without losing task semantics.
+        """
+        polygons = state.polygon
+        roles = state.polygon_shape_roles
+        target_mask = polygons.active & (roles == 1)
+        goal_mask = polygons.active & (roles == 2) & (polygons.n_vertices >= 3)
+
+        # Express every potential target centroid in every potential goal's
+        # local frame.  This also supports rotated convex goal polygons.
+        target_to_goal = polygons.position[:, None, :] - polygons.position[None, :, :]
+        cosine = jnp.cos(polygons.rotation)[None, :]
+        sine = jnp.sin(polygons.rotation)[None, :]
+        local_target = jnp.stack(
+            (
+                cosine * target_to_goal[..., 0] + sine * target_to_goal[..., 1],
+                -sine * target_to_goal[..., 0] + cosine * target_to_goal[..., 1],
+            ),
+            axis=-1,
+        )
+
+        vertices = polygons.vertices
+        vertex_indices = jnp.arange(vertices.shape[1])[None, :]
+        next_vertex_indices = jnp.where(
+            vertex_indices + 1 < polygons.n_vertices[:, None],
+            vertex_indices + 1,
+            0,
+        )
+        next_vertices = jnp.take_along_axis(
+            vertices,
+            next_vertex_indices[..., None],
+            axis=1,
+        )
+        edges = next_vertices - vertices
+        point_from_vertex = local_target[:, :, None, :] - vertices[None, :, :, :]
+        edge_cross_point = (
+            edges[None, :, :, 0] * point_from_vertex[..., 1]
+            - edges[None, :, :, 1] * point_from_vertex[..., 0]
+        )
+        valid_vertex = vertex_indices < polygons.n_vertices[:, None]
+
+        # Kinetix polygons are clockwise, but accepting either consistent
+        # winding makes hand-edited JSON less fragile.
+        inside_clockwise = jnp.all(
+            (edge_cross_point <= 1e-6) | ~valid_vertex[None, :, :],
+            axis=-1,
+        )
+        inside_counterclockwise = jnp.all(
+            (edge_cross_point >= -1e-6) | ~valid_vertex[None, :, :],
+            axis=-1,
+        )
+        valid_target_goal_pair = target_mask[:, None] & goal_mask[None, :]
+        target_inside_goal = jnp.any(
+            valid_target_goal_pair & (inside_clockwise | inside_counterclockwise)
+        )
+
+        # All movable arm links, rather than only the end effector, must be
+        # nearly static before hold time accumulates.
+        movable_mask = polygons.active & (polygons.inverse_mass > 0)
+        linear_speeds = jnp.linalg.norm(polygons.velocity, axis=-1)
+        max_linear_speed_mps = jnp.max(jnp.where(movable_mask, linear_speeds, 0.0))
+        max_angular_speed_rad_s = jnp.max(
+            jnp.where(movable_mask, jnp.abs(polygons.angular_velocity), 0.0)
+        )
+        arm_is_steady = (
+            jnp.any(movable_mask)
+            & (max_linear_speed_mps <= self.goal_linear_velocity_threshold_mps)
+            & (max_angular_speed_rad_s <= self.goal_angular_velocity_threshold_rad_s)
+        )
+        return (
+            target_inside_goal,
+            arm_is_steady,
+            max_linear_speed_mps,
+            max_angular_speed_rad_s,
+        )
+
+    def _update_goal_progress(
+        self,
+        state: ResidualTorqueEnvState,
+        env_params: EnvParams,
+    ):
+        """Advance or reset the consecutive hold timer for one physics step."""
+        (
+            target_inside_goal,
+            arm_is_steady,
+            max_linear_speed_mps,
+            max_angular_speed_rad_s,
+        ) = self._standup_goal_metrics(state)
+        goal_condition_met = target_inside_goal & arm_is_steady
+        goal_hold_steps = jnp.where(
+            goal_condition_met,
+            state.goal_hold_steps + 1,
+            0,
+        ).astype(jnp.int32)
+        required_hold_steps = jnp.maximum(
+            1,
+            jnp.ceil(self.goal_hold_duration_seconds / env_params.dt).astype(jnp.int32),
+        )
+        goal_reached = goal_hold_steps >= required_hold_steps
+        state = state.replace(goal_hold_steps=goal_hold_steps)
+        info = {
+            "goal_inside": target_inside_goal,
+            "goal_steady": arm_is_steady,
+            "goal_hold_steps": goal_hold_steps,
+            "goal_hold_time_seconds": goal_hold_steps * env_params.dt,
+            "goal_required_hold_steps": required_hold_steps,
+            "goal_max_linear_speed_mps": max_linear_speed_mps,
+            "goal_max_angular_speed_rad_s": max_angular_speed_rad_s,
+        }
+        return state, goal_reached, info
 
     def _torque_engine_step(
         self,
@@ -316,8 +518,28 @@ class ResidualTorqueEnv(KinetixEnv):
                 env_params,
                 self._physics_noop_action,
             )
-            reward, info = self.compute_reward_info(current_state, manifolds)
-            done = reward != 0
+            collision_reward, info = self.compute_reward_info(
+                current_state,
+                manifolds,
+            )
+            current_state, goal_reached, goal_info = self._update_goal_progress(
+                current_state,
+                env_params,
+            )
+            info.update(goal_info)
+
+            # Role-1/role-2 contact is the base Kinetix success condition.  In
+            # this task the role-2 shape is a non-colliding region, and success
+            # is emitted only after the continuous steady hold.  Negative
+            # role collisions retain their normal immediate termination.
+            hit_failure = collision_reward < 0
+            reward = jax.lax.select(
+                hit_failure,
+                -1.0,
+                jax.lax.select(goal_reached, 1.0, 0.0),
+            )
+            info["GoalR"] = goal_reached
+            done = hit_failure | goal_reached
             return current_state, (reward, done, info, mechanical_energy_j)
 
         state, (rewards, dones, infos, mechanical_energy_per_substep_j) = jax.lax.scan(
@@ -402,6 +624,14 @@ class ResidualTorqueEnv(KinetixEnv):
                 self.residual_torque_limit_nm,
                 self.total_torque_limit_nm,
                 self.energy_penalty_coefficient,
+                self.underlying_controller_name,
+                self.underlying_controller,
+                self.pd_gain_randomization_fraction,
+                self.bang_bang_torque_randomization_fraction,
+                self.controller_torque_noise_std_nm,
+                self.goal_hold_duration_seconds,
+                self.goal_linear_velocity_threshold_mps,
+                self.goal_angular_velocity_threshold_rad_s,
             )
         )
 
@@ -418,14 +648,30 @@ def make_residual_torque_env(
     residual_torque_limit_nm: float = DEFAULT_RESIDUAL_TORQUE_LIMIT_NM,
     total_torque_limit_nm: float = DEFAULT_TOTAL_TORQUE_LIMIT_NM,
     energy_penalty_coefficient: float = DEFAULT_ENERGY_PENALTY_COEFFICIENT,
+    underlying_controller: ControllerSpec = UnderlyingControllerType.PD,
+    pd_gain_randomization_fraction: float = (DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION),
+    bang_bang_torque_randomization_fraction: float = (
+        DEFAULT_BB_TORQUE_RANDOMIZATION_FRACTION
+    ),
+    controller_torque_noise_std_nm: float = DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM,
+    goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+    goal_linear_velocity_threshold_mps: float = (
+        DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
+    ),
+    goal_angular_velocity_threshold_rad_s: float = (
+        DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S
+    ),
 ) -> ResidualTorqueEnv:
     """Create a residual-torque standup environment.
 
     This mirrors ``make_kinetix_env`` except that the action type is fixed to a
-    three-dimensional continuous residual torque.  Existing RL code should
-    continue to set its configuration action type to ``continuous`` so the
-    policy uses a Gaussian continuous-action head; the network obtains the
-    new action dimension from ``env.action_space(env_params).shape``.
+    three-dimensional continuous residual torque.  ``underlying_controller``
+    accepts ``"pd"``, ``"bang_bang"``, ``"none"``, ``"random"``, the
+    corresponding enum, or a custom callable with signature
+    ``(state, static_params, episode_key)``.
+    Existing RL code should continue to set its configuration action type to
+    ``continuous`` so the policy uses a Gaussian continuous-action head; the
+    network obtains the action dimension from the environment.
     """
     if env_params is None:
         env_params = EnvParams()
@@ -452,4 +698,13 @@ def make_residual_torque_env(
         residual_torque_limit_nm=residual_torque_limit_nm,
         total_torque_limit_nm=total_torque_limit_nm,
         energy_penalty_coefficient=energy_penalty_coefficient,
+        underlying_controller=underlying_controller,
+        pd_gain_randomization_fraction=pd_gain_randomization_fraction,
+        bang_bang_torque_randomization_fraction=(
+            bang_bang_torque_randomization_fraction
+        ),
+        controller_torque_noise_std_nm=controller_torque_noise_std_nm,
+        goal_hold_duration_seconds=goal_hold_duration_seconds,
+        goal_linear_velocity_threshold_mps=goal_linear_velocity_threshold_mps,
+        goal_angular_velocity_threshold_rad_s=goal_angular_velocity_threshold_rad_s,
     )

@@ -7,8 +7,14 @@ import jax.numpy as jnp
 from jax2d.engine import select_shape
 
 NUM_STANDUP_JOINTS = 3
-CUTOUT_PERIOD_SECONDS = 2.0
-PHYSICS_DT_SECONDS = 1.0 / 60.0
+
+STANDUP_KP = jnp.array([5.0, 5.0, 5.0], dtype=jnp.float32)
+STANDUP_KD = jnp.array([0.3, 0.3, 0.3], dtype=jnp.float32)
+STANDUP_MAX_TORQUE_NM = jnp.array([5.0, 5.0, 5.0], dtype=jnp.float32)
+STANDUP_JOINT_TARGET_RAD = jnp.array([0.0, 1.57, -1.57], dtype=jnp.float32)
+DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION = 0.2
+DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM = 0.2
+PD_TORQUE_NOISE_KEY_TAG = 101
 
 
 class StandupJointState(NamedTuple):
@@ -65,54 +71,87 @@ def get_standup_joint_state(state, static_env_params) -> StandupJointState:
     )
 
 
-def stand_pd(state, static_env_params):
-    kp = jnp.array([5.0, 5.0, 5.0])  # Proportional gains for each joint
-    kd = jnp.array([0.3, 0.3, 0.3])  # Derivative gains for each joint
-    max_torque = jnp.array([5, 5, 5])  # Maximum torque for each joint
-    joint_target = jnp.array(
-        [0.0, 1.57, -1.57]
-    )  # Target angles for each joint (standing position)
+def stand_pd_with_gains(state, static_env_params, kp, kd):
+    """Return clipped PD torque using explicit per-joint gains."""
     joint_state = get_standup_joint_state(state, static_env_params)
     joint_angle = joint_state.angle_rad
     joint_velocity = joint_state.angular_velocity_rad_s
-    joint_torque = kp * (joint_target - joint_angle) - kd * joint_velocity
-    joint_torque = jnp.clip(joint_torque, -max_torque, max_torque)
+    joint_torque = kp * (STANDUP_JOINT_TARGET_RAD - joint_angle) - kd * joint_velocity
+    joint_torque = jnp.clip(
+        joint_torque,
+        -STANDUP_MAX_TORQUE_NM,
+        STANDUP_MAX_TORQUE_NM,
+    )
     return joint_torque
 
 
-@jax.jit
-def stand_pd_with_cutout(
+def stand_pd(state, static_env_params):
+    """Return deterministic PD torque at the nominal gains."""
+    return stand_pd_with_gains(
+        state,
+        static_env_params,
+        STANDUP_KP,
+        STANDUP_KD,
+    )
+
+
+def sample_pd_gains(
+    episode_key,
+    randomization_fraction: float = DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION,
+):
+    """Sample independent per-joint P and D gains for one episode."""
+    kp_key, kd_key = jax.random.split(episode_key)
+    minimum_multiplier = 1.0 - randomization_fraction
+    maximum_multiplier = 1.0 + randomization_fraction
+    kp_multiplier = jax.random.uniform(
+        kp_key,
+        shape=STANDUP_KP.shape,
+        minval=minimum_multiplier,
+        maxval=maximum_multiplier,
+    )
+    kd_multiplier = jax.random.uniform(
+        kd_key,
+        shape=STANDUP_KD.shape,
+        minval=minimum_multiplier,
+        maxval=maximum_multiplier,
+    )
+    return STANDUP_KP * kp_multiplier, STANDUP_KD * kd_multiplier
+
+
+def sample_controller_torque_noise_nm(
+    episode_key,
+    timestep,
+    noise_std_nm: float = DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM,
+    *,
+    key_tag: int,
+):
+    """Sample reproducible per-joint Gaussian noise for one control step."""
+    controller_key = jax.random.fold_in(episode_key, key_tag)
+    step_key = jax.random.fold_in(
+        controller_key,
+        jnp.asarray(timestep, dtype=jnp.uint32),
+    )
+    return noise_std_nm * jax.random.normal(
+        step_key,
+        shape=(NUM_STANDUP_JOINTS,),
+        dtype=jnp.float32,
+    )
+
+
+def stand_pd_randomized(
     state,
     static_env_params,
-    cutout_key,
+    episode_key,
+    randomization_fraction: float = DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION,
+    torque_noise_std_nm: float = DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM,
 ):
-    """Compute standup PD torque with independent two-second joint cutouts.
-
-    ``cutout_key`` must remain fixed for the duration of an episode. A new
-    per-joint Bernoulli mask is derived from it for every two-second period, so
-    repeated calls within the same period return the same mask. Use a new base
-    key after an episode reset when a new cutout sequence is desired.
-
-    Args:
-        state: Current Kinetix environment state.
-        static_env_params: Static parameters for the current environment.
-        cutout_key: Episode-level JAX PRNG key.
-
-    Returns:
-        Standup PD torque in N*m with disabled commands replaced by zero.
-    """
-    joint_torque = stand_pd(state, static_env_params)
-    probability = jnp.clip(0.2, 0.0, 1.0)
-    control_dt_seconds = PHYSICS_DT_SECONDS * static_env_params.frame_skip
-    steps_per_period = jnp.maximum(
-        1,
-        jnp.rint(CUTOUT_PERIOD_SECONDS / control_dt_seconds).astype(jnp.int32),
+    """Return randomized PD torque with per-step Gaussian torque noise."""
+    kp, kd = sample_pd_gains(episode_key, randomization_fraction)
+    controller_torque_nm = stand_pd_with_gains(state, static_env_params, kp, kd)
+    torque_noise_nm = sample_controller_torque_noise_nm(
+        episode_key,
+        state.timestep,
+        torque_noise_std_nm,
+        key_tag=PD_TORQUE_NOISE_KEY_TAG,
     )
-    period_index = (state.timestep // steps_per_period).astype(jnp.uint32)
-    period_key = jax.random.fold_in(cutout_key, period_index)
-    disabled = jax.random.bernoulli(
-        period_key,
-        p=probability,
-        shape=joint_torque.shape,
-    )
-    return jnp.where(disabled, jnp.zeros_like(joint_torque), joint_torque)
+    return controller_torque_nm + torque_noise_nm

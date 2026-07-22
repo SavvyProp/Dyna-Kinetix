@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "level",
         nargs="?",
-        default="l/simple_standup.json",
+        default="l/standup_goal.json",
         help=(
             "Level JSON to simulate. Relative names such as 'l/my_level.json' "
             "are resolved from kinetix/levels/ (default: %(default)s)."
@@ -60,11 +60,17 @@ def parse_args() -> argparse.Namespace:
         help="Optionally close after this many simulation steps.",
     )
     parser.add_argument(
+        "--controller",
+        choices=("pd", "bang_bang", "none", "random"),
+        default="pd",
+        help="Underlying torque controller (default: %(default)s).",
+    )
+    parser.add_argument(
         "--torque-limit-nm",
         type=float,
         default=20.0,
         help=(
-            "Symmetric limit for the combined PD and residual torque in N*m "
+            "Symmetric limit for combined controller and residual torque in N*m "
             "(default: %(default)s)."
         ),
     )
@@ -120,6 +126,7 @@ def main() -> None:
         static_env_params=static_env_params,
         auto_reset=False,
         total_torque_limit_nm=args.torque_limit_nm,
+        underlying_controller=args.controller,
     )
 
     rng, reset_rng = jax.random.split(jax.random.PRNGKey(args.seed))
@@ -136,6 +143,7 @@ def main() -> None:
     done = False
     paused = args.paused
     applied_torque_nm = residual_torque_nm
+    goal_hold_time_seconds = 0.0
 
     simulation_fps = args.fps or 1.0 / (
         float(env_params.dt) * static_env_params.frame_skip
@@ -150,6 +158,7 @@ def main() -> None:
         "Controls: Space pause/run | N or . single-step | R reset | Q/Esc quit\n"
         "Residual torque bindings: Left/Right, Up/Down, A/D\n"
         f"Actor/keyboard torque: +/-{actor_torque_limit_nm:g} N*m | "
+        f"controller: {env.underlying_controller_name} | "
         f"combined torque limit: +/-{args.torque_limit_nm:g} N*m"
     )
 
@@ -175,6 +184,7 @@ def main() -> None:
                     reward = 0.0
                     done = False
                     applied_torque_nm = env.action_type.noop_action()
+                    goal_hold_time_seconds = 0.0
 
         if running and (not paused or single_step) and not done:
             rng, step_rng = jax.random.split(rng)
@@ -190,6 +200,7 @@ def main() -> None:
                 env_params,
             )
             applied_torque_nm = info["total_torque_nm"]
+            goal_hold_time_seconds = float(info["goal_hold_time_seconds"])
             joint_state = get_standup_joint_state(state, static_env_params)
             print(joint_state)
 
@@ -211,7 +222,9 @@ def main() -> None:
         torque_text = np.asarray(applied_torque_nm).round(1).tolist()
         pygame.display.set_caption(
             f"Dyna-Kinetix standup | {status} | step={int(state.timestep)} | "
-            f"reward={reward:.3f} | torque N*m={torque_text}"
+            f"controller={env.underlying_controller_name} | "
+            f"reward={reward:.3f} | hold={goal_hold_time_seconds:.2f}/"
+            f"{env.goal_hold_duration_seconds:.2f}s | torque N*m={torque_text}"
         )
         pygame.display.flip()
         clock.tick(max(1, round(simulation_fps)))
