@@ -212,6 +212,10 @@ class TestFlowActionChunking(unittest.TestCase):
                 ["image"],
             )
             self.assertEqual(
+                checkpoint["data_config"]["residual_torque_limit_nm"],
+                5.0,
+            )
+            self.assertEqual(
                 checkpoint["data_config"]["pd_gain_randomization_fraction"],
                 0.2,
             )

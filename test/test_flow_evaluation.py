@@ -47,7 +47,7 @@ def make_checkpoint(image_shape, frame_stack=2, action_horizon=2):
         "data_config": {
             "observation_inputs": ["image"],
             "image_shape": list(image_shape),
-            "residual_torque_limit_nm": 2.5,
+            "residual_torque_limit_nm": 5.0,
         },
     }
 
@@ -77,7 +77,7 @@ class TestFlowEvaluation(unittest.TestCase):
         np.testing.assert_allclose(np.asarray(history[1]), 1.0)
         self.assertEqual(residual_torque.shape, (1, 3))
         self.assertEqual(chunks.shape, (1, 2, 3))
-        self.assertLessEqual(float(jnp.abs(residual_torque).max()), 2.5)
+        self.assertLessEqual(float(jnp.abs(residual_torque).max()), 5.0)
 
     def test_controller_factory_covers_all_four_residual_environments(self):
         initial_level, static_env_params, env_params = load_from_json_file(

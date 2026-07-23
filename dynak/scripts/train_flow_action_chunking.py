@@ -70,7 +70,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--validation-batches", type=int, default=8)
     parser.add_argument("--frame-stack", type=int, default=1)
     parser.add_argument("--action-horizon", type=int, default=8)
-    parser.add_argument("--residual-torque-limit-nm", type=float, default=2.5)
+    parser.add_argument("--residual-torque-limit-nm", type=float, default=5.0)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--warmup-steps", type=int, default=1000)
     parser.add_argument("--weight-decay", type=float, default=1e-2)
