@@ -111,7 +111,7 @@ class TestResidualTorqueGoal(unittest.TestCase):
             places=6,
         )
 
-    def test_default_goal_succeeds_on_one_frame_at_one_mps(self):
+    def test_default_goal_succeeds_despite_high_angular_speed(self):
         env = make_residual_torque_env(
             observation_type=ObservationType.SYMBOLIC_FLAT,
             reset_fn=lambda _rng: self.state,
@@ -124,7 +124,10 @@ class TestResidualTorqueGoal(unittest.TestCase):
             polygon=state.polygon.replace(
                 velocity=state.polygon.velocity.at[self.target_index].set(
                     jnp.array([1.0, 0.0], dtype=jnp.float32)
-                )
+                ),
+                angular_velocity=state.polygon.angular_velocity.at[
+                    self.target_index
+                ].set(10.0),
             )
         )
 
@@ -134,6 +137,7 @@ class TestResidualTorqueGoal(unittest.TestCase):
         self.assertEqual(int(info["goal_required_hold_steps"]), 1)
         self.assertTrue(bool(info["goal_steady"]))
         self.assertTrue(bool(reached))
+        self.assertEqual(float(info["goal_max_angular_speed_rad_s"]), 10.0)
 
     def test_success_requires_full_hold_duration(self):
         state = self._state_with_target_in_goal()

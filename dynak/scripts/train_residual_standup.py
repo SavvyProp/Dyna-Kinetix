@@ -63,9 +63,6 @@ def make_residual_standup_env(
             goal_linear_velocity_threshold_mps=config[
                 "goal_linear_velocity_threshold_mps"
             ],
-            goal_angular_velocity_threshold_rad_s=config[
-                "goal_angular_velocity_threshold_rad_s"
-            ],
         )
     )
 

@@ -17,7 +17,6 @@ from omegaconf import OmegaConf
 from dynak.imitation_rollout import make_batched_rollout_function
 from dynak.standup.controllers import UnderlyingControllerType
 from dynak.standup.residual_torque_env import (
-    DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
     DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
@@ -303,12 +302,6 @@ def initial_manifest(
                 DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
             )
         ),
-        "goal_angular_velocity_threshold_rad_s": float(
-            config.get(
-                "goal_angular_velocity_threshold_rad_s",
-                DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
-            )
-        ),
         "units": {
             "image": "uint8 RGB",
             "policy_action": "N*m before environment clipping",
@@ -348,7 +341,6 @@ def validate_resume_manifest(
         "goal_inside_reward_per_second",
         "goal_hold_duration_seconds",
         "goal_linear_velocity_threshold_mps",
-        "goal_angular_velocity_threshold_rad_s",
     ):
         if manifest.get(field) != expected.get(field):
             raise ValueError(

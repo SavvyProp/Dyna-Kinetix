@@ -65,10 +65,10 @@ effector is inside the non-colliding goal region, regardless of whether the arm
 is steady yet. The default `1.0` produces `dt` reward per physics step, so the
 cumulative occupancy reward grows linearly by approximately `+1` per second.
 Terminal success requires one qualifying 60 Hz frame in the region. The
-maximum linear speed over the movable arm must be at most 1.0 m/s, and the
-maximum angular speed must be at most 0.2 rad/s. Collection uses these current
-criteria even when an older PPO checkpoint contains the previous stricter
-values.
+maximum linear speed over the movable arm must be at most 1.0 m/s. Angular
+speed is reported as a rollout diagnostic but does not affect success.
+Collection uses these current criteria even when an older PPO checkpoint
+contains the previous stricter values.
 
 The controller torques are retained for analysis only. The imitation policy
 does not receive controller identity, underlying torque, total torque, or

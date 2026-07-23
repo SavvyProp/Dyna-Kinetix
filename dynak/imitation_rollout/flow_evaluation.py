@@ -22,7 +22,6 @@ from dynak.standup.stand_pd import (
 )
 from dynak.standup.residual_torque_env import (
     DEFAULT_ENERGY_PENALTY_COEFFICIENT,
-    DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
     DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
@@ -201,9 +200,6 @@ def make_flow_evaluation_env(
     goal_linear_velocity_threshold_mps: float = (
         DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
     ),
-    goal_angular_velocity_threshold_rad_s: float = (
-        DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S
-    ),
 ):
     """Construct one pixel residual environment for flow-policy evaluation."""
     return make_residual_torque_env(
@@ -234,7 +230,6 @@ def make_flow_evaluation_env(
         goal_inside_reward_per_second=goal_inside_reward_per_second,
         goal_hold_duration_seconds=goal_hold_duration_seconds,
         goal_linear_velocity_threshold_mps=goal_linear_velocity_threshold_mps,
-        goal_angular_velocity_threshold_rad_s=(goal_angular_velocity_threshold_rad_s),
     )
 
 
@@ -256,9 +251,6 @@ def make_batched_flow_rollout_function(
     goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     goal_linear_velocity_threshold_mps: float = (
         DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
-    ),
-    goal_angular_velocity_threshold_rad_s: float = (
-        DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S
     ),
 ) -> Callable[[jax.Array], dict[str, jax.Array]]:
     """Build a jitted, vectorized evaluator for one controller variant.
@@ -294,7 +286,6 @@ def make_batched_flow_rollout_function(
         goal_inside_reward_per_second=goal_inside_reward_per_second,
         goal_hold_duration_seconds=goal_hold_duration_seconds,
         goal_linear_velocity_threshold_mps=goal_linear_velocity_threshold_mps,
-        goal_angular_velocity_threshold_rad_s=(goal_angular_velocity_threshold_rad_s),
     )
     sample_action = make_flow_batch_action_function(
         policy,

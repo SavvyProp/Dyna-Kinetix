@@ -13,7 +13,6 @@ import jax
 import jax.numpy as jnp
 
 from dynak.standup.residual_torque_env import (
-    DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
     DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
@@ -95,11 +94,6 @@ def make_batched_rollout_function(
             config,
             "goal_linear_velocity_threshold_mps",
             DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
-        ),
-        goal_angular_velocity_threshold_rad_s=_config_value(
-            config,
-            "goal_angular_velocity_threshold_rad_s",
-            DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
         ),
     )
     network = make_network_from_config(env, env_params, config)

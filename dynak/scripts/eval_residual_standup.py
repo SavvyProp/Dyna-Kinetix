@@ -27,7 +27,6 @@ from kinetix.util import normalise_config, rms_normalise
 from kinetix.util.saving import load_from_json_file, load_params
 
 from dynak.standup.residual_torque_env import (
-    DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
     DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
@@ -171,10 +170,6 @@ def main() -> None:
         goal_linear_velocity_threshold_mps=config.get(
             "goal_linear_velocity_threshold_mps",
             DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
-        ),
-        goal_angular_velocity_threshold_rad_s=config.get(
-            "goal_angular_velocity_threshold_rad_s",
-            DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
         ),
     )
     network = make_network_from_config(env, env_params, config)

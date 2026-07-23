@@ -48,7 +48,6 @@ DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND = 1.0
 # The standup level runs at 60 Hz, so this requires one qualifying frame.
 DEFAULT_GOAL_HOLD_DURATION_SECONDS = 1.0 / 60.0
 DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS = 1.0
-DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S = 0.2
 
 
 @struct.dataclass
@@ -206,9 +205,6 @@ class ResidualTorqueEnv(KinetixEnv):
         goal_linear_velocity_threshold_mps: float = (
             DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
         ),
-        goal_angular_velocity_threshold_rad_s: float = (
-            DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S
-        ),
     ):
         if static_env_params.num_motor_bindings < NUM_STANDUP_JOINTS:
             raise ValueError(
@@ -236,10 +232,6 @@ class ResidualTorqueEnv(KinetixEnv):
             raise ValueError("goal_hold_duration_seconds must be greater than zero")
         if goal_linear_velocity_threshold_mps < 0:
             raise ValueError("goal_linear_velocity_threshold_mps must be non-negative")
-        if goal_angular_velocity_threshold_rad_s < 0:
-            raise ValueError(
-                "goal_angular_velocity_threshold_rad_s must be non-negative"
-            )
 
         action_type = ResidualTorqueActions(
             env_params,
@@ -277,9 +269,6 @@ class ResidualTorqueEnv(KinetixEnv):
         self.goal_hold_duration_seconds = float(goal_hold_duration_seconds)
         self.goal_linear_velocity_threshold_mps = float(
             goal_linear_velocity_threshold_mps
-        )
-        self.goal_angular_velocity_threshold_rad_s = float(
-            goal_angular_velocity_threshold_rad_s
         )
         self._physics_noop_action = jnp.zeros(
             static_env_params.num_joints + static_env_params.num_thrusters,
@@ -442,10 +431,8 @@ class ResidualTorqueEnv(KinetixEnv):
         max_angular_speed_rad_s = jnp.max(
             jnp.where(movable_mask, jnp.abs(polygons.angular_velocity), 0.0)
         )
-        arm_is_steady = (
-            jnp.any(movable_mask)
-            & (max_linear_speed_mps <= self.goal_linear_velocity_threshold_mps)
-            & (max_angular_speed_rad_s <= self.goal_angular_velocity_threshold_rad_s)
+        arm_is_steady = jnp.any(movable_mask) & (
+            max_linear_speed_mps <= self.goal_linear_velocity_threshold_mps
         )
         return (
             target_inside_goal,
@@ -650,7 +637,6 @@ class ResidualTorqueEnv(KinetixEnv):
                 self.goal_inside_reward_per_second,
                 self.goal_hold_duration_seconds,
                 self.goal_linear_velocity_threshold_mps,
-                self.goal_angular_velocity_threshold_rad_s,
             )
         )
 
@@ -677,9 +663,6 @@ def make_residual_torque_env(
     goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     goal_linear_velocity_threshold_mps: float = (
         DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
-    ),
-    goal_angular_velocity_threshold_rad_s: float = (
-        DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S
     ),
 ) -> ResidualTorqueEnv:
     """Create a residual-torque standup environment.
@@ -727,5 +710,4 @@ def make_residual_torque_env(
         goal_inside_reward_per_second=goal_inside_reward_per_second,
         goal_hold_duration_seconds=goal_hold_duration_seconds,
         goal_linear_velocity_threshold_mps=goal_linear_velocity_threshold_mps,
-        goal_angular_velocity_threshold_rad_s=goal_angular_velocity_threshold_rad_s,
     )
