@@ -56,7 +56,7 @@ class PixelActionChunkDataset:
         validation_fraction: float = 0.1,
         frame_stack: int = 1,
         action_horizon: int = 8,
-        residual_torque_limit_nm: float = 5.0,
+        residual_torque_limit_nm: float = 10.0,
         cache_size: int = 3,
         shard_reuse_batches: int = 32,
     ):
@@ -170,14 +170,11 @@ class PixelActionChunkDataset:
                 self.residual_torque_limit_nm,
             )
         )
-        if not np.isclose(
-            manifest_torque_limit_nm,
-            self.residual_torque_limit_nm,
-        ):
+        if manifest_torque_limit_nm > self.residual_torque_limit_nm:
             raise ValueError(
                 f"{controller_dir} was collected with residual_torque_limit_nm="
-                f"{manifest_torque_limit_nm}, but the dataset loader requested "
-                f"{self.residual_torque_limit_nm}"
+                f"{manifest_torque_limit_nm}, which exceeds the dataset "
+                f"normalization limit {self.residual_torque_limit_nm}"
             )
         if manifest.get("observation_type") != "pixels":
             raise ValueError(

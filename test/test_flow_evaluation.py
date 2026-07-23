@@ -16,6 +16,7 @@ from dynak.imitation_rollout import (
     make_batched_flow_rollout_function,
     make_controller_flow_rollout_functions,
     make_flow_batch_action_function,
+    make_flow_evaluation_env,
 )
 from kinetix.util.saving import load_from_json_file
 
@@ -98,6 +99,36 @@ class TestFlowEvaluation(unittest.TestCase):
         )
 
         self.assertEqual(tuple(rollout_functions), RESIDUAL_CONTROLLER_NAMES)
+
+    def test_flow_environments_use_controller_specific_actor_limits(self):
+        initial_level, static_env_params, env_params = load_from_json_file(
+            "l/standup_goal.json"
+        )
+        image_shape = tuple(
+            dimension // static_env_params.downscale
+            for dimension in static_env_params.screen_dim
+        ) + (3,)
+        policy = flow_policy_from_checkpoint(
+            make_checkpoint(image_shape, frame_stack=1)
+        )
+
+        no_controller_env = make_flow_evaluation_env(
+            policy,
+            initial_level,
+            static_env_params,
+            env_params,
+            "none",
+        )
+        pd_env = make_flow_evaluation_env(
+            policy,
+            initial_level,
+            static_env_params,
+            env_params,
+            "pd",
+        )
+
+        self.assertEqual(no_controller_env.residual_torque_limit_nm, 10.0)
+        self.assertEqual(pd_env.residual_torque_limit_nm, 5.0)
 
     def test_batched_rollout_reuses_chunk_for_execute_horizon(self):
         initial_level, static_env_params, env_params = load_from_json_file(

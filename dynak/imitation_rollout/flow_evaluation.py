@@ -26,6 +26,7 @@ from dynak.standup.residual_torque_env import (
     DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
     DEFAULT_TOTAL_TORQUE_LIMIT_NM,
+    default_residual_torque_limit_nm,
     make_residual_torque_env,
 )
 from kinetix.environment.spaces import ObservationType
@@ -208,7 +209,7 @@ def make_flow_evaluation_env(
         env_params=env_params,
         static_env_params=static_env_params,
         auto_reset=False,
-        residual_torque_limit_nm=policy.residual_torque_limit_nm,
+        residual_torque_limit_nm=default_residual_torque_limit_nm(controller),
         total_torque_limit_nm=total_torque_limit_nm,
         energy_penalty_coefficient=energy_penalty_coefficient,
         underlying_controller=controller,

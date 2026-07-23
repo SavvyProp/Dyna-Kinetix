@@ -77,7 +77,7 @@ class TestStandupControllers(unittest.TestCase):
         )
         np.testing.assert_array_equal(np.asarray(torque), np.zeros(3))
 
-    def test_actor_residual_torque_limit_is_five_nm(self):
+    def test_no_controller_actor_residual_torque_limit_is_ten_nm(self):
         env = make_residual_torque_env(
             observation_type=ObservationType.SYMBOLIC_FLAT,
             reset_fn=lambda _rng: self.state,
@@ -87,15 +87,28 @@ class TestStandupControllers(unittest.TestCase):
             underlying_controller="none",
         )
         action_space = env.action_space(self.env_params)
-        self.assertEqual(env.residual_torque_limit_nm, 5.0)
-        np.testing.assert_array_equal(np.asarray(action_space.low), [-5.0] * 3)
-        np.testing.assert_array_equal(np.asarray(action_space.high), [5.0] * 3)
+        self.assertEqual(env.residual_torque_limit_nm, 10.0)
+        np.testing.assert_array_equal(np.asarray(action_space.low), [-10.0] * 3)
+        np.testing.assert_array_equal(np.asarray(action_space.high), [10.0] * 3)
         clipped = env.action_type.process_action(
-            jnp.asarray([-8.0, 2.0, 8.0]),
+            jnp.asarray([-12.0, 2.0, 12.0]),
             self.state,
             self.static_env_params,
         )
-        np.testing.assert_array_equal(np.asarray(clipped), [-5.0, 2.0, 5.0])
+        np.testing.assert_array_equal(np.asarray(clipped), [-10.0, 2.0, 10.0])
+
+    def test_controlled_actor_residual_torque_limit_remains_five_nm(self):
+        for controller in ("pd", "bang_bang", "switch"):
+            with self.subTest(controller=controller):
+                env = make_residual_torque_env(
+                    observation_type=ObservationType.SYMBOLIC_FLAT,
+                    reset_fn=lambda _rng: self.state,
+                    env_params=self.env_params,
+                    static_env_params=self.static_env_params,
+                    auto_reset=False,
+                    underlying_controller=controller,
+                )
+                self.assertEqual(env.residual_torque_limit_nm, 5.0)
 
     def test_pd_and_bang_bang_have_no_random_cutout(self):
         episode_key = jax.random.PRNGKey(4)

@@ -30,6 +30,7 @@ from dynak.standup.residual_torque_env import (
     DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
+    default_residual_torque_limit_nm,
     make_residual_torque_env,
 )
 
@@ -128,6 +129,9 @@ def main() -> None:
         "goal_linear_velocity_threshold_mps",
     ):
         config[field] = default_config[field]
+    config["residual_torque_limit_nm"] = default_residual_torque_limit_nm(
+        config.get("underlying_controller", "pd")
+    )
 
     if config["action_type"] != ActionType.CONTINUOUS:
         raise ValueError("Residual standup checkpoints must use a continuous policy")

@@ -191,6 +191,7 @@ def load_config(controller: str, checkpoint_config: dict[str, Any] | None) -> di
     # Success criteria come from the current task definition so older expert
     # checkpoints can be collected under the newly relaxed goal.
     for field in (
+        "residual_torque_limit_nm",
         "goal_hold_duration_seconds",
         "goal_linear_velocity_threshold_mps",
     ):

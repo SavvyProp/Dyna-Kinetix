@@ -23,7 +23,11 @@ from kinetix.util.saving import load_params
 CONTROLLERS = ("no_controller", "pd", "bang_bang")
 
 
-def write_controller_dataset(root: Path, controller: str) -> None:
+def write_controller_dataset(
+    root: Path,
+    controller: str,
+    residual_torque_limit_nm: float | None = None,
+) -> None:
     controller_dir = root / controller
     controller_dir.mkdir(parents=True)
     num_episodes = 4
@@ -63,6 +67,8 @@ def write_controller_dataset(root: Path, controller: str) -> None:
             }
         ],
     }
+    if residual_torque_limit_nm is not None:
+        manifest["residual_torque_limit_nm"] = residual_torque_limit_nm
     (controller_dir / "manifest.json").write_text(json.dumps(manifest))
 
 
@@ -72,6 +78,25 @@ def write_datasets(root: Path) -> None:
 
 
 class TestFlowActionChunking(unittest.TestCase):
+    def test_shared_normalization_accepts_smaller_controller_limits(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            write_controller_dataset(root, "no_controller", 10.0)
+            write_controller_dataset(root, "pd", 5.0)
+            write_controller_dataset(root, "bang_bang", 5.0)
+
+            dataset = PixelActionChunkDataset(
+                root,
+                residual_torque_limit_nm=10.0,
+            )
+            self.assertEqual(dataset.residual_torque_limit_nm, 10.0)
+
+            with self.assertRaisesRegex(ValueError, "exceeds"):
+                PixelActionChunkDataset(
+                    root,
+                    residual_torque_limit_nm=5.0,
+                )
+
     def test_pixel_dataset_produces_masked_normalized_chunks(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -213,7 +238,7 @@ class TestFlowActionChunking(unittest.TestCase):
             )
             self.assertEqual(
                 checkpoint["data_config"]["residual_torque_limit_nm"],
-                5.0,
+                10.0,
             )
             self.assertEqual(
                 checkpoint["data_config"]["pd_gain_randomization_fraction"],

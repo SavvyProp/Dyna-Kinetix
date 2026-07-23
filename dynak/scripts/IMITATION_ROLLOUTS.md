@@ -74,8 +74,10 @@ The controller torques are retained for analysis only. The imitation policy
 does not receive controller identity, underlying torque, total torque, or
 symbolic simulator state. It learns to predict `residual_torque_nm` chunks
 from the same rendered observation modality used by the pixel PPO experts.
-Residual policy actions are bounded to +/-5 N*m by default; this limit is
-stored in rollout manifests and used to normalize flow-matching targets.
+Residual policy actions are bounded to +/-10 N*m without an underlying
+controller and +/-5 N*m for PD, bang-bang, and switch. Each limit is stored in
+the rollout manifest. Joint flow training uses +/-10 N*m as its shared
+normalization range so it can represent every dataset without clipping.
 
 Collection samples from the PPO action distribution by default. Use
 `--deterministic` for evaluation or debugging. Interrupted collection can be

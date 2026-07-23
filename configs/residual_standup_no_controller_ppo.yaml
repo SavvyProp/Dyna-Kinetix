@@ -4,6 +4,7 @@ defaults:
 
 env:
   underlying_controller: none
+  residual_torque_limit_nm: 10.0
 
 misc:
   save_path: checkpoints/dynak/residual_standup_no_controller

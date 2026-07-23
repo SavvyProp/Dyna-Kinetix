@@ -55,6 +55,7 @@ class TestImitationRollout(unittest.TestCase):
             "pd",
             {
                 "underlying_controller": "pd",
+                "residual_torque_limit_nm": 2.5,
                 "goal_hold_duration_seconds": 0.5,
                 "goal_linear_velocity_threshold_mps": 0.2,
             },
@@ -62,6 +63,16 @@ class TestImitationRollout(unittest.TestCase):
 
         self.assertAlmostEqual(config["goal_hold_duration_seconds"], 1.0 / 60.0)
         self.assertEqual(config["goal_linear_velocity_threshold_mps"], 1.0)
+        self.assertEqual(config["residual_torque_limit_nm"], 5.0)
+
+        no_controller_config = load_config(
+            "no_controller",
+            {
+                "underlying_controller": "none",
+                "residual_torque_limit_nm": 5.0,
+            },
+        )
+        self.assertEqual(no_controller_config["residual_torque_limit_nm"], 10.0)
 
     def test_success_requires_goal_on_a_valid_transition(self):
         episode = {key: value[None, ...] for key, value in make_episode().items()}

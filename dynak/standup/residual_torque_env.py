@@ -42,12 +42,26 @@ from dynak.standup.controllers import (
 from dynak.standup.stand_pd import NUM_STANDUP_JOINTS, get_standup_joint_state
 
 DEFAULT_RESIDUAL_TORQUE_LIMIT_NM = 5.0
+NO_CONTROLLER_RESIDUAL_TORQUE_LIMIT_NM = 10.0
 DEFAULT_TOTAL_TORQUE_LIMIT_NM = 20.0
 DEFAULT_ENERGY_PENALTY_COEFFICIENT = 1e-3
 DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND = 1.0
 # The standup level runs at 60 Hz, so this requires one qualifying frame.
 DEFAULT_GOAL_HOLD_DURATION_SECONDS = 1.0 / 60.0
 DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS = 1.0
+
+
+def default_residual_torque_limit_nm(controller: ControllerSpec) -> float:
+    """Return the actor limit for a built-in underlying controller."""
+    if isinstance(controller, UnderlyingControllerType):
+        controller_type = controller
+    elif isinstance(controller, str):
+        controller_type = UnderlyingControllerType.from_string(controller)
+    else:
+        return DEFAULT_RESIDUAL_TORQUE_LIMIT_NM
+    if controller_type is UnderlyingControllerType.NONE:
+        return NO_CONTROLLER_RESIDUAL_TORQUE_LIMIT_NM
+    return DEFAULT_RESIDUAL_TORQUE_LIMIT_NM
 
 
 @struct.dataclass
@@ -187,7 +201,7 @@ class ResidualTorqueEnv(KinetixEnv):
         reset_function: Optional[Callable[[chex.PRNGKey], EnvState]] = None,
         physics_engine: Optional[PhysicsEngine] = None,
         auto_reset: bool = True,
-        residual_torque_limit_nm: float = DEFAULT_RESIDUAL_TORQUE_LIMIT_NM,
+        residual_torque_limit_nm: Optional[float] = None,
         total_torque_limit_nm: float = DEFAULT_TOTAL_TORQUE_LIMIT_NM,
         energy_penalty_coefficient: float = DEFAULT_ENERGY_PENALTY_COEFFICIENT,
         underlying_controller: ControllerSpec = UnderlyingControllerType.PD,
@@ -211,6 +225,10 @@ class ResidualTorqueEnv(KinetixEnv):
                 "Residual standup control requires at least "
                 f"{NUM_STANDUP_JOINTS} motor bindings; got "
                 f"{static_env_params.num_motor_bindings}."
+            )
+        if residual_torque_limit_nm is None:
+            residual_torque_limit_nm = default_residual_torque_limit_nm(
+                underlying_controller
             )
         if residual_torque_limit_nm <= 0:
             raise ValueError("residual_torque_limit_nm must be greater than zero")
@@ -650,7 +668,7 @@ def make_residual_torque_env(
     env_params: Optional[EnvParams] = None,
     static_env_params: Optional[StaticEnvParams] = None,
     auto_reset: bool = True,
-    residual_torque_limit_nm: float = DEFAULT_RESIDUAL_TORQUE_LIMIT_NM,
+    residual_torque_limit_nm: Optional[float] = None,
     total_torque_limit_nm: float = DEFAULT_TOTAL_TORQUE_LIMIT_NM,
     energy_penalty_coefficient: float = DEFAULT_ENERGY_PENALTY_COEFFICIENT,
     underlying_controller: ControllerSpec = UnderlyingControllerType.PD,
