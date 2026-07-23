@@ -94,7 +94,7 @@ class TestResidualTorqueGoal(unittest.TestCase):
         moving_state = state.replace(
             polygon=state.polygon.replace(
                 velocity=state.polygon.velocity.at[self.target_index].set(
-                    jnp.array([0.21, 0.0], dtype=jnp.float32)
+                    jnp.array([1.01, 0.0], dtype=jnp.float32)
                 )
             )
         )
@@ -110,6 +110,30 @@ class TestResidualTorqueGoal(unittest.TestCase):
             float(self.env_params.dt),
             places=6,
         )
+
+    def test_default_goal_succeeds_on_one_frame_at_one_mps(self):
+        env = make_residual_torque_env(
+            observation_type=ObservationType.SYMBOLIC_FLAT,
+            reset_fn=lambda _rng: self.state,
+            env_params=self.env_params,
+            static_env_params=self.env.static_env_params,
+            auto_reset=False,
+        )
+        state = self._state_with_target_in_goal()
+        state = state.replace(
+            polygon=state.polygon.replace(
+                velocity=state.polygon.velocity.at[self.target_index].set(
+                    jnp.array([1.0, 0.0], dtype=jnp.float32)
+                )
+            )
+        )
+
+        state, reached, info = env._update_goal_progress(state, self.env_params)
+
+        self.assertEqual(int(state.goal_hold_steps), 1)
+        self.assertEqual(int(info["goal_required_hold_steps"]), 1)
+        self.assertTrue(bool(info["goal_steady"]))
+        self.assertTrue(bool(reached))
 
     def test_success_requires_full_hold_duration(self):
         state = self._state_with_target_in_goal()

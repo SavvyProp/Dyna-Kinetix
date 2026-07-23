@@ -12,7 +12,13 @@ from typing import Any, Callable
 import jax
 import jax.numpy as jnp
 
-from dynak.standup.residual_torque_env import make_residual_torque_env
+from dynak.standup.residual_torque_env import (
+    DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
+    DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+    DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
+    DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
+    make_residual_torque_env,
+)
 from kinetix.environment.spaces import ActionType, ObservationType
 from kinetix.models import GeneralActorCriticRNN, make_network_from_config
 from kinetix.util import rms_normalise
@@ -78,22 +84,22 @@ def make_batched_rollout_function(
         goal_inside_reward_per_second=_config_value(
             config,
             "goal_inside_reward_per_second",
-            1.0,
+            DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
         ),
         goal_hold_duration_seconds=_config_value(
             config,
             "goal_hold_duration_seconds",
-            0.5,
+            DEFAULT_GOAL_HOLD_DURATION_SECONDS,
         ),
         goal_linear_velocity_threshold_mps=_config_value(
             config,
             "goal_linear_velocity_threshold_mps",
-            0.2,
+            DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
         ),
         goal_angular_velocity_threshold_rad_s=_config_value(
             config,
             "goal_angular_velocity_threshold_rad_s",
-            0.2,
+            DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
         ),
     )
     network = make_network_from_config(env, env_params, config)

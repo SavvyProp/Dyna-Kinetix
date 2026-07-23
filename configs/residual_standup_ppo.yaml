@@ -31,10 +31,10 @@ env:
   # While the end effector is inside the goal, reward accumulates linearly at
   # this rate even if the arm is not yet steady. One second inside gives +1.
   goal_inside_reward_per_second: 1.0
-  # Succeed after the complete movable arm remains within the relaxed velocity
-  # thresholds and its end effector stays inside the goal for half a second.
-  goal_hold_duration_seconds: 0.5
-  goal_linear_velocity_threshold_mps: 0.2
+  # Succeed on the first 60 Hz frame where the end effector is inside the goal
+  # and every movable arm link remains within the velocity thresholds.
+  goal_hold_duration_seconds: 0.016666666666666666
+  goal_linear_velocity_threshold_mps: 1.0
   goal_angular_velocity_threshold_rad_s: 0.2
 
 env_size:

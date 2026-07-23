@@ -26,7 +26,13 @@ from kinetix.render import make_render_pixels
 from kinetix.util import normalise_config, rms_normalise
 from kinetix.util.saving import load_from_json_file, load_params
 
-from dynak.standup.residual_torque_env import make_residual_torque_env
+from dynak.standup.residual_torque_env import (
+    DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
+    DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+    DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
+    DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
+    make_residual_torque_env,
+)
 
 DEFAULT_CHECKPOINT = Path("checkpoints/dynak/residual_standup/final.pbz2")
 
@@ -113,7 +119,16 @@ def main() -> None:
     args = parse_args()
     checkpoint_path = resolve_checkpoint_path(args.checkpoint)
     checkpoint = load_params(checkpoint_path)
-    config = checkpoint.get("config") or load_default_config()
+    default_config = load_default_config()
+    config = {**default_config, **(checkpoint.get("config") or {})}
+    # Goal criteria are evaluation semantics rather than policy architecture.
+    # Use the current task definition even for checkpoints trained before it
+    # was relaxed.
+    for field in (
+        "goal_hold_duration_seconds",
+        "goal_linear_velocity_threshold_mps",
+    ):
+        config[field] = default_config[field]
 
     if config["action_type"] != ActionType.CONTINUOUS:
         raise ValueError("Residual standup checkpoints must use a continuous policy")
@@ -147,16 +162,19 @@ def main() -> None:
         ),
         goal_inside_reward_per_second=config.get(
             "goal_inside_reward_per_second",
-            1.0,
+            DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
         ),
-        goal_hold_duration_seconds=config.get("goal_hold_duration_seconds", 0.5),
+        goal_hold_duration_seconds=config.get(
+            "goal_hold_duration_seconds",
+            DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+        ),
         goal_linear_velocity_threshold_mps=config.get(
             "goal_linear_velocity_threshold_mps",
-            0.2,
+            DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
         ),
         goal_angular_velocity_threshold_rad_s=config.get(
             "goal_angular_velocity_threshold_rad_s",
-            0.2,
+            DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
         ),
     )
     network = make_network_from_config(env, env_params, config)

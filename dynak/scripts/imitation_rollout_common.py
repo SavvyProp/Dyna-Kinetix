@@ -16,13 +16,19 @@ from omegaconf import OmegaConf
 
 from dynak.imitation_rollout import make_batched_rollout_function
 from dynak.standup.controllers import UnderlyingControllerType
-from dynak.standup.residual_torque_env import make_residual_torque_env
+from dynak.standup.residual_torque_env import (
+    DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
+    DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+    DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
+    DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
+    make_residual_torque_env,
+)
 from kinetix.environment.spaces import ObservationType
 from kinetix.util import normalise_config
 from kinetix.util.saving import load_from_json_file, load_params
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 DEFAULT_LEVEL = "l/standup_goal.json"
 DEFAULT_OUTPUT_ROOT = Path("checkpoints/dynak/imitation_rollouts")
 CONTROLLER_ORDER = ("no_controller", "pd", "bang_bang")
@@ -183,6 +189,13 @@ def load_config(controller: str, checkpoint_config: dict[str, Any] | None) -> di
         save_config=False,
     )
     config = {**default_config, **(checkpoint_config or {})}
+    # Success criteria come from the current task definition so older expert
+    # checkpoints can be collected under the newly relaxed goal.
+    for field in (
+        "goal_hold_duration_seconds",
+        "goal_linear_velocity_threshold_mps",
+    ):
+        config[field] = default_config[field]
     config["underlying_controller"] = expected_controller
     return config
 
@@ -273,7 +286,28 @@ def initial_manifest(
             config.get("controller_torque_noise_std_nm", 0.2)
         ),
         "goal_inside_reward_per_second": float(
-            config.get("goal_inside_reward_per_second", 1.0)
+            config.get(
+                "goal_inside_reward_per_second",
+                DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
+            )
+        ),
+        "goal_hold_duration_seconds": float(
+            config.get(
+                "goal_hold_duration_seconds",
+                DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+            )
+        ),
+        "goal_linear_velocity_threshold_mps": float(
+            config.get(
+                "goal_linear_velocity_threshold_mps",
+                DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
+            )
+        ),
+        "goal_angular_velocity_threshold_rad_s": float(
+            config.get(
+                "goal_angular_velocity_threshold_rad_s",
+                DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
+            )
         ),
         "units": {
             "image": "uint8 RGB",
@@ -312,6 +346,9 @@ def validate_resume_manifest(
         "bang_bang_torque_randomization_fraction",
         "controller_torque_noise_std_nm",
         "goal_inside_reward_per_second",
+        "goal_hold_duration_seconds",
+        "goal_linear_velocity_threshold_mps",
+        "goal_angular_velocity_threshold_rad_s",
     ):
         if manifest.get(field) != expected.get(field):
             raise ValueError(

@@ -8,6 +8,7 @@ import numpy as np
 
 from dynak.scripts.imitation_rollout_common import (
     TRANSITION_FIELDS,
+    load_config,
     pack_shard,
     save_npz_atomic,
     successful_episode_mask,
@@ -49,6 +50,19 @@ def make_pixel_episode(length: int = 3, max_timesteps: int = 5):
 
 
 class TestImitationRollout(unittest.TestCase):
+    def test_collection_uses_current_goal_for_older_checkpoint(self):
+        config = load_config(
+            "pd",
+            {
+                "underlying_controller": "pd",
+                "goal_hold_duration_seconds": 0.5,
+                "goal_linear_velocity_threshold_mps": 0.2,
+            },
+        )
+
+        self.assertAlmostEqual(config["goal_hold_duration_seconds"], 1.0 / 60.0)
+        self.assertEqual(config["goal_linear_velocity_threshold_mps"], 1.0)
+
     def test_success_requires_goal_on_a_valid_transition(self):
         episode = {key: value[None, ...] for key, value in make_episode().items()}
         np.testing.assert_array_equal(successful_episode_mask(episode), [True])
