@@ -75,20 +75,25 @@ def make_batched_rollout_function(
             "controller_torque_noise_std_nm",
             0.2,
         ),
+        goal_inside_reward_per_second=_config_value(
+            config,
+            "goal_inside_reward_per_second",
+            1.0,
+        ),
         goal_hold_duration_seconds=_config_value(
             config,
             "goal_hold_duration_seconds",
-            1.0,
+            0.5,
         ),
         goal_linear_velocity_threshold_mps=_config_value(
             config,
             "goal_linear_velocity_threshold_mps",
-            0.1,
+            0.2,
         ),
         goal_angular_velocity_threshold_rad_s=_config_value(
             config,
             "goal_angular_velocity_threshold_rad_s",
-            0.1,
+            0.2,
         ),
     )
     network = make_network_from_config(env, env_params, config)
@@ -174,6 +179,9 @@ def make_batched_rollout_function(
                     "success": info["GoalR"],
                     "valid_mask": jnp.asarray(True),
                     "goal_inside": info["goal_inside"],
+                    "goal_inside_reward": info["goal_inside_reward"].astype(
+                        jnp.float32
+                    ),
                     "goal_steady": info["goal_steady"],
                     "goal_hold_time_seconds": info["goal_hold_time_seconds"].astype(
                         jnp.float32
@@ -218,6 +226,7 @@ def make_batched_rollout_function(
                     "success": jnp.asarray(False),
                     "valid_mask": jnp.asarray(False),
                     "goal_inside": jnp.asarray(False),
+                    "goal_inside_reward": zero_scalar,
                     "goal_steady": jnp.asarray(False),
                     "goal_hold_time_seconds": zero_scalar,
                     "goal_max_linear_speed_mps": zero_scalar,

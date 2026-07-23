@@ -60,6 +60,12 @@ the setting is saved in dataset and flow-checkpoint metadata. Set
 `controller_torque_noise_std_nm: 0.0` to disable this noise. The no-controller
 baseline remains exactly zero.
 
+The standup reward includes `goal_inside_reward_per_second` whenever the end
+effector is inside the non-colliding goal region, regardless of whether the arm
+is steady yet. The default `1.0` produces `dt` reward per physics step, so the
+cumulative occupancy reward grows linearly by approximately `+1` per second.
+The existing steady-hold condition and terminal success bonus remain intact.
+
 The controller torques are retained for analysis only. The imitation policy
 does not receive controller identity, underlying torque, total torque, or
 symbolic simulator state. It learns to predict `residual_torque_nm` chunks

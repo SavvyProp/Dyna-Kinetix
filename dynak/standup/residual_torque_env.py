@@ -44,9 +44,10 @@ from dynak.standup.stand_pd import NUM_STANDUP_JOINTS, get_standup_joint_state
 DEFAULT_RESIDUAL_TORQUE_LIMIT_NM = 2.5
 DEFAULT_TOTAL_TORQUE_LIMIT_NM = 20.0
 DEFAULT_ENERGY_PENALTY_COEFFICIENT = 1e-3
-DEFAULT_GOAL_HOLD_DURATION_SECONDS = 1.0
-DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS = 0.1
-DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S = 0.1
+DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND = 1.0
+DEFAULT_GOAL_HOLD_DURATION_SECONDS = 0.5
+DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS = 0.2
+DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S = 0.2
 
 
 @struct.dataclass
@@ -199,6 +200,7 @@ class ResidualTorqueEnv(KinetixEnv):
         controller_torque_noise_std_nm: float = (
             DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM
         ),
+        goal_inside_reward_per_second: float = (DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND),
         goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
         goal_linear_velocity_threshold_mps: float = (
             DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
@@ -227,6 +229,8 @@ class ResidualTorqueEnv(KinetixEnv):
             )
         if controller_torque_noise_std_nm < 0.0:
             raise ValueError("controller_torque_noise_std_nm must be non-negative")
+        if goal_inside_reward_per_second < 0.0:
+            raise ValueError("goal_inside_reward_per_second must be non-negative")
         if goal_hold_duration_seconds <= 0:
             raise ValueError("goal_hold_duration_seconds must be greater than zero")
         if goal_linear_velocity_threshold_mps < 0:
@@ -268,6 +272,7 @@ class ResidualTorqueEnv(KinetixEnv):
             bang_bang_torque_randomization_fraction
         )
         self.controller_torque_noise_std_nm = float(controller_torque_noise_std_nm)
+        self.goal_inside_reward_per_second = float(goal_inside_reward_per_second)
         self.goal_hold_duration_seconds = float(goal_hold_duration_seconds)
         self.goal_linear_velocity_threshold_mps = float(
             goal_linear_velocity_threshold_mps
@@ -471,9 +476,15 @@ class ResidualTorqueEnv(KinetixEnv):
             jnp.ceil(self.goal_hold_duration_seconds / env_params.dt).astype(jnp.int32),
         )
         goal_reached = goal_hold_steps >= required_hold_steps
+        goal_inside_reward = jnp.where(
+            target_inside_goal,
+            self.goal_inside_reward_per_second * env_params.dt,
+            0.0,
+        ).astype(jnp.float32)
         state = state.replace(goal_hold_steps=goal_hold_steps)
         info = {
             "goal_inside": target_inside_goal,
+            "goal_inside_reward": goal_inside_reward,
             "goal_steady": arm_is_steady,
             "goal_hold_steps": goal_hold_steps,
             "goal_hold_time_seconds": goal_hold_steps * env_params.dt,
@@ -533,11 +544,17 @@ class ResidualTorqueEnv(KinetixEnv):
             # is emitted only after the continuous steady hold.  Negative
             # role collisions retain their normal immediate termination.
             hit_failure = collision_reward < 0
+            goal_inside_reward = jax.lax.select(
+                hit_failure,
+                jnp.asarray(0.0, dtype=jnp.float32),
+                goal_info["goal_inside_reward"],
+            )
             reward = jax.lax.select(
                 hit_failure,
                 -1.0,
-                jax.lax.select(goal_reached, 1.0, 0.0),
+                goal_inside_reward + jax.lax.select(goal_reached, 1.0, 0.0),
             )
+            info["goal_inside_reward"] = goal_inside_reward
             info["GoalR"] = goal_reached
             done = hit_failure | goal_reached
             return current_state, (reward, done, info, mechanical_energy_j)
@@ -629,6 +646,7 @@ class ResidualTorqueEnv(KinetixEnv):
                 self.pd_gain_randomization_fraction,
                 self.bang_bang_torque_randomization_fraction,
                 self.controller_torque_noise_std_nm,
+                self.goal_inside_reward_per_second,
                 self.goal_hold_duration_seconds,
                 self.goal_linear_velocity_threshold_mps,
                 self.goal_angular_velocity_threshold_rad_s,
@@ -654,6 +672,7 @@ def make_residual_torque_env(
         DEFAULT_BB_TORQUE_RANDOMIZATION_FRACTION
     ),
     controller_torque_noise_std_nm: float = DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM,
+    goal_inside_reward_per_second: float = DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     goal_linear_velocity_threshold_mps: float = (
         DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
@@ -704,6 +723,7 @@ def make_residual_torque_env(
             bang_bang_torque_randomization_fraction
         ),
         controller_torque_noise_std_nm=controller_torque_noise_std_nm,
+        goal_inside_reward_per_second=goal_inside_reward_per_second,
         goal_hold_duration_seconds=goal_hold_duration_seconds,
         goal_linear_velocity_threshold_mps=goal_linear_velocity_threshold_mps,
         goal_angular_velocity_threshold_rad_s=goal_angular_velocity_threshold_rad_s,

@@ -24,6 +24,7 @@ from dynak.standup.residual_torque_env import (
     DEFAULT_ENERGY_PENALTY_COEFFICIENT,
     DEFAULT_GOAL_ANGULAR_VELOCITY_THRESHOLD_RAD_S,
     DEFAULT_GOAL_HOLD_DURATION_SECONDS,
+    DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS,
     DEFAULT_TOTAL_TORQUE_LIMIT_NM,
     make_residual_torque_env,
@@ -195,6 +196,7 @@ def make_flow_evaluation_env(
     controller_torque_noise_std_nm: float | None = None,
     total_torque_limit_nm: float = DEFAULT_TOTAL_TORQUE_LIMIT_NM,
     energy_penalty_coefficient: float = DEFAULT_ENERGY_PENALTY_COEFFICIENT,
+    goal_inside_reward_per_second: float = DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     goal_linear_velocity_threshold_mps: float = (
         DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
@@ -229,6 +231,7 @@ def make_flow_evaluation_env(
             if controller_torque_noise_std_nm is None
             else controller_torque_noise_std_nm
         ),
+        goal_inside_reward_per_second=goal_inside_reward_per_second,
         goal_hold_duration_seconds=goal_hold_duration_seconds,
         goal_linear_velocity_threshold_mps=goal_linear_velocity_threshold_mps,
         goal_angular_velocity_threshold_rad_s=(goal_angular_velocity_threshold_rad_s),
@@ -249,6 +252,7 @@ def make_batched_flow_rollout_function(
     controller_torque_noise_std_nm: float | None = None,
     total_torque_limit_nm: float = DEFAULT_TOTAL_TORQUE_LIMIT_NM,
     energy_penalty_coefficient: float = DEFAULT_ENERGY_PENALTY_COEFFICIENT,
+    goal_inside_reward_per_second: float = DEFAULT_GOAL_INSIDE_REWARD_PER_SECOND,
     goal_hold_duration_seconds: float = DEFAULT_GOAL_HOLD_DURATION_SECONDS,
     goal_linear_velocity_threshold_mps: float = (
         DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
@@ -287,6 +291,7 @@ def make_batched_flow_rollout_function(
         controller_torque_noise_std_nm=controller_torque_noise_std_nm,
         total_torque_limit_nm=total_torque_limit_nm,
         energy_penalty_coefficient=energy_penalty_coefficient,
+        goal_inside_reward_per_second=goal_inside_reward_per_second,
         goal_hold_duration_seconds=goal_hold_duration_seconds,
         goal_linear_velocity_threshold_mps=goal_linear_velocity_threshold_mps,
         goal_angular_velocity_threshold_rad_s=(goal_angular_velocity_threshold_rad_s),
@@ -383,6 +388,9 @@ def make_batched_flow_rollout_function(
                     "success": info["GoalR"],
                     "valid_mask": jnp.asarray(True),
                     "goal_inside": info["goal_inside"],
+                    "goal_inside_reward": info["goal_inside_reward"].astype(
+                        jnp.float32
+                    ),
                     "goal_steady": info["goal_steady"],
                     "goal_hold_time_seconds": info["goal_hold_time_seconds"].astype(
                         jnp.float32
@@ -423,6 +431,7 @@ def make_batched_flow_rollout_function(
                     "success": jnp.asarray(False),
                     "valid_mask": jnp.asarray(False),
                     "goal_inside": jnp.asarray(False),
+                    "goal_inside_reward": zero_scalar,
                     "goal_steady": jnp.asarray(False),
                     "goal_hold_time_seconds": zero_scalar,
                 }

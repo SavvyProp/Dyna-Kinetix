@@ -22,7 +22,7 @@ from kinetix.util import normalise_config
 from kinetix.util.saving import load_from_json_file, load_params
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 DEFAULT_LEVEL = "l/standup_goal.json"
 DEFAULT_OUTPUT_ROOT = Path("checkpoints/dynak/imitation_rollouts")
 CONTROLLER_ORDER = ("no_controller", "pd", "bang_bang")
@@ -53,6 +53,7 @@ TRANSITION_FIELDS = (
     "success",
     "valid_mask",
     "goal_inside",
+    "goal_inside_reward",
     "goal_steady",
     "goal_hold_time_seconds",
     "goal_max_linear_speed_mps",
@@ -270,6 +271,9 @@ def initial_manifest(
         "controller_torque_noise_std_nm": float(
             config.get("controller_torque_noise_std_nm", 0.2)
         ),
+        "goal_inside_reward_per_second": float(
+            config.get("goal_inside_reward_per_second", 1.0)
+        ),
         "units": {
             "image": "uint8 RGB",
             "policy_action": "N*m before environment clipping",
@@ -305,6 +309,7 @@ def validate_resume_manifest(
         "pd_gain_randomization_fraction",
         "bang_bang_torque_randomization_fraction",
         "controller_torque_noise_std_nm",
+        "goal_inside_reward_per_second",
     ):
         if manifest.get(field) != expected.get(field):
             raise ValueError(

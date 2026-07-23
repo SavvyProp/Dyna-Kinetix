@@ -145,14 +145,18 @@ def main() -> None:
             "controller_torque_noise_std_nm",
             0.2,
         ),
-        goal_hold_duration_seconds=config.get("goal_hold_duration_seconds", 1.0),
+        goal_inside_reward_per_second=config.get(
+            "goal_inside_reward_per_second",
+            1.0,
+        ),
+        goal_hold_duration_seconds=config.get("goal_hold_duration_seconds", 0.5),
         goal_linear_velocity_threshold_mps=config.get(
             "goal_linear_velocity_threshold_mps",
-            0.1,
+            0.2,
         ),
         goal_angular_velocity_threshold_rad_s=config.get(
             "goal_angular_velocity_threshold_rad_s",
-            0.1,
+            0.2,
         ),
     )
     network = make_network_from_config(env, env_params, config)

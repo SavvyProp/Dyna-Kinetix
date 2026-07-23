@@ -94,7 +94,7 @@ class TestResidualTorqueGoal(unittest.TestCase):
         moving_state = state.replace(
             polygon=state.polygon.replace(
                 velocity=state.polygon.velocity.at[self.target_index].set(
-                    jnp.array([0.11, 0.0], dtype=jnp.float32)
+                    jnp.array([0.21, 0.0], dtype=jnp.float32)
                 )
             )
         )
@@ -105,6 +105,11 @@ class TestResidualTorqueGoal(unittest.TestCase):
         self.assertEqual(int(moving_state.goal_hold_steps), 0)
         self.assertFalse(bool(reached))
         self.assertFalse(bool(info["goal_steady"]))
+        self.assertAlmostEqual(
+            float(info["goal_inside_reward"]),
+            float(self.env_params.dt),
+            places=6,
+        )
 
     def test_success_requires_full_hold_duration(self):
         state = self._state_with_target_in_goal()
@@ -160,7 +165,16 @@ class TestResidualTorqueGoal(unittest.TestCase):
             self.assertFalse(bool(done))
             self.assertFalse(bool(info["GoalR"]))
             self.assertEqual(np.asarray(info["controller_torque_nm"]).shape, (3,))
-            self.assertLessEqual(float(reward), 0.0)
+            self.assertAlmostEqual(
+                float(info["goal_inside_reward"]),
+                float(self.env_params.dt),
+                places=6,
+            )
+            self.assertAlmostEqual(
+                float(reward),
+                float(self.env_params.dt),
+                places=5,
+            )
 
         key, step_key = jax.random.split(key)
         _, state, reward, done, info = self.env.step(
@@ -172,7 +186,20 @@ class TestResidualTorqueGoal(unittest.TestCase):
         self.assertEqual(int(state.goal_hold_steps), 3)
         self.assertTrue(bool(done))
         self.assertTrue(bool(info["GoalR"]))
-        self.assertAlmostEqual(float(reward), 1.0, places=5)
+        self.assertAlmostEqual(
+            float(reward),
+            1.0 + float(self.env_params.dt),
+            places=5,
+        )
+
+    def test_outside_goal_has_no_inside_reward(self):
+        _, reached, info = self.env._update_goal_progress(
+            self.state,
+            self.env_params,
+        )
+        self.assertFalse(bool(reached))
+        self.assertFalse(bool(info["goal_inside"]))
+        self.assertEqual(float(info["goal_inside_reward"]), 0.0)
 
 
 if __name__ == "__main__":

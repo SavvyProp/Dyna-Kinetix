@@ -27,6 +27,7 @@ def make_episode(length: int = 3, max_timesteps: int = 5):
         "valid_mask": valid,
         "success": np.arange(max_timesteps) == length - 1,
         "goal_inside": valid,
+        "goal_inside_reward": np.where(valid, 0.1, 0.0).astype(np.float32),
         "goal_steady": valid,
         "goal_hold_time_seconds": np.zeros(max_timesteps, dtype=np.float32),
         "goal_max_linear_speed_mps": np.zeros(max_timesteps, dtype=np.float32),

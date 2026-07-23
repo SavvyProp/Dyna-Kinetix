@@ -55,6 +55,10 @@ def make_residual_standup_env(
                 "controller_torque_noise_std_nm",
                 0.2,
             ),
+            goal_inside_reward_per_second=config.get(
+                "goal_inside_reward_per_second",
+                1.0,
+            ),
             goal_hold_duration_seconds=config["goal_hold_duration_seconds"],
             goal_linear_velocity_threshold_mps=config[
                 "goal_linear_velocity_threshold_mps"
