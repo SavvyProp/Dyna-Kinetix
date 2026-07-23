@@ -57,7 +57,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=list(RESIDUAL_CONTROLLER_NAMES),
         help=(
             "Residual environments sampled on reset. Defaults to none, PD, "
-            "bang-bang, and random switching."
+            "bang-bang, and switch."
         ),
     )
     parser.add_argument(

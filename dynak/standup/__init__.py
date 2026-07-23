@@ -14,9 +14,9 @@ from dynak.standup.residual_torque_env import (
 )
 from dynak.standup.stand_bb import stand_bb
 from dynak.standup.stand_pd import stand_pd
-from dynak.standup.stand_random import (
-    get_random_controller_indices,
-    stand_random,
+from dynak.standup.stand_switch import (
+    get_switch_controller_indices,
+    stand_switch,
 )
 
 __all__ = [
@@ -29,7 +29,7 @@ __all__ = [
     "no_controller",
     "resolve_underlying_controller",
     "stand_bb",
-    "get_random_controller_indices",
+    "get_switch_controller_indices",
     "stand_pd",
-    "stand_random",
+    "stand_switch",
 ]

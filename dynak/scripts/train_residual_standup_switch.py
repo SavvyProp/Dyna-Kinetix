@@ -1,4 +1,4 @@
-"""Train residual standup with per-joint random controller switching."""
+"""Train residual standup with independent per-joint controller switching."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ from dynak.scripts.train_residual_standup import run_residual_standup_training
 @hydra.main(
     version_base=None,
     config_path="../../configs",
-    config_name="residual_standup_random_ppo",
+    config_name="residual_standup_switch_ppo",
 )
 def main(hydra_config) -> None:
-    run_residual_standup_training(hydra_config, "ResidualStandupRandomPPO")
+    run_residual_standup_training(hydra_config, "ResidualStandupSwitchPPO")
 
 
 if __name__ == "__main__":

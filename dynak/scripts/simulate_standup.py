@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--controller",
-        choices=("pd", "bang_bang", "none", "random"),
+        choices=("pd", "bang_bang", "none", "switch"),
         default="pd",
         help="Underlying torque controller (default: %(default)s).",
     )

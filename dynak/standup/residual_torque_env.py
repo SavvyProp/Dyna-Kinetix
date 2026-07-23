@@ -55,7 +55,7 @@ class ResidualTorqueEnvState(EnvState):
 
     # A default is required because EnvState has fields with defaults.  Reset
     # always replaces this with a real key before the state is returned.
-    cutout_key: Optional[jax.Array] = None
+    controller_key: Optional[jax.Array] = None
     # Number of consecutive physics substeps for which the arm has satisfied
     # the in-region and low-velocity goal conditions.
     goal_hold_steps: int = 0
@@ -287,7 +287,7 @@ class ResidualTorqueEnv(KinetixEnv):
         override_reset_state: Optional[EnvState],
     ):
         del env_params
-        _, reset_key, cutout_key = jax.random.split(rng, 3)
+        _, reset_key, controller_key = jax.random.split(rng, 3)
         if override_reset_state is not None:
             state = override_reset_state
         elif self.reset_function is not None:
@@ -297,13 +297,13 @@ class ResidualTorqueEnv(KinetixEnv):
 
         if isinstance(state, ResidualTorqueEnvState):
             state = state.replace(
-                cutout_key=cutout_key,
+                controller_key=controller_key,
                 goal_hold_steps=jnp.zeros_like(state.goal_hold_steps),
             )
         else:
             state = ResidualTorqueEnvState(
                 **state.__dict__,
-                cutout_key=cutout_key,
+                controller_key=controller_key,
                 goal_hold_steps=jnp.asarray(0, dtype=jnp.int32),
             )
 
@@ -356,7 +356,7 @@ class ResidualTorqueEnv(KinetixEnv):
             self.underlying_controller(
                 state,
                 self.static_env_params,
-                state.cutout_key,
+                state.controller_key,
             ),
             dtype=jnp.float32,
         )
@@ -666,7 +666,7 @@ def make_residual_torque_env(
 
     This mirrors ``make_kinetix_env`` except that the action type is fixed to a
     three-dimensional continuous residual torque.  ``underlying_controller``
-    accepts ``"pd"``, ``"bang_bang"``, ``"none"``, ``"random"``, the
+    accepts ``"pd"``, ``"bang_bang"``, ``"none"``, ``"switch"``, the
     corresponding enum, or a custom callable with signature
     ``(state, static_params, episode_key)``.
     Existing RL code should continue to set its configuration action type to

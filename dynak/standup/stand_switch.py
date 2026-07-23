@@ -1,4 +1,4 @@
-"""Per-joint random switching controller for the standup task."""
+"""Per-joint switching controller for the standup task."""
 
 import jax
 import jax.numpy as jnp
@@ -16,20 +16,20 @@ from dynak.standup.stand_pd import (
 
 SWITCH_PERIOD_SECONDS = 2.0
 PHYSICS_DT_SECONDS = 1.0 / 60.0
-CUTOUT_PROBABILITY = 0.2
+NO_CONTROLLER_PROBABILITY = 0.2
 
 NO_CONTROLLER_INDEX = 0
 PD_CONTROLLER_INDEX = 1
 BANG_BANG_CONTROLLER_INDEX = 2
 NUM_CONTROLLER_CHOICES = 3
-ACTIVE_CONTROLLER_PROBABILITY = (1.0 - CUTOUT_PROBABILITY) / 2.0
+ACTIVE_CONTROLLER_PROBABILITY = (1.0 - NO_CONTROLLER_PROBABILITY) / 2.0
 CONTROLLER_SELECTION_KEY_TAG = 0
 PD_PARAMETER_KEY_TAG = 1
 BB_PARAMETER_KEY_TAG = 2
 CONTROLLER_PROBABILITIES = (
     jnp.zeros(NUM_CONTROLLER_CHOICES, dtype=jnp.float32)
     .at[NO_CONTROLLER_INDEX]
-    .set(CUTOUT_PROBABILITY)
+    .set(NO_CONTROLLER_PROBABILITY)
     .at[PD_CONTROLLER_INDEX]
     .set(ACTIVE_CONTROLLER_PROBABILITY)
     .at[BANG_BANG_CONTROLLER_INDEX]
@@ -46,14 +46,13 @@ def controller_switch_steps(static_env_params):
     )
 
 
-def get_random_controller_indices(state, static_env_params, switch_key):
-    """Select one baseline controller independently for every joint.
+def get_switch_controller_indices(state, static_env_params, switch_key):
+    """Select none, PD, or bang-bang independently for every joint.
 
-    The episode-level ``switch_key`` and current two-second period determine
-    the choices, so they remain stable within a period and change at its next
-    boundary. The returned values index ``none``, ``pd``, and ``bang_bang``.
-    ``none`` retains the original 20 percent cutout probability; the remaining
-    probability is split equally between PD and bang-bang control.
+    The episode key and current two-second period determine each joint's
+    selection. Choices remain stable within a period and are resampled at the
+    next boundary. The no-controller choice has the original 20 percent
+    cutout probability, and PD and bang-bang split the remaining probability.
     """
     period_index = (
         state.timestep // controller_switch_steps(static_env_params)
@@ -70,18 +69,18 @@ def get_random_controller_indices(state, static_env_params, switch_key):
     ).astype(jnp.int32)
 
 
-def stand_random(
+def stand_switch(
     state,
     static_env_params,
     switch_key,
-    pd_gain_randomization_fraction: float = (DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION),
+    pd_gain_randomization_fraction: float = DEFAULT_PD_GAIN_RANDOMIZATION_FRACTION,
     bang_bang_torque_randomization_fraction: float = (
         DEFAULT_BB_TORQUE_RANDOMIZATION_FRACTION
     ),
-    controller_torque_noise_std_nm: float = (DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM),
+    controller_torque_noise_std_nm: float = DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM,
 ):
-    """Randomly switch each joint among randomized baseline controllers."""
-    controller_indices = get_random_controller_indices(
+    """Switch every joint independently among none, PD, and bang-bang."""
+    controller_indices = get_switch_controller_indices(
         state,
         static_env_params,
         switch_key,

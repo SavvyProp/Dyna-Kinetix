@@ -32,13 +32,13 @@ from dynak.standup.stand_pd import (
     stand_pd,
     stand_pd_randomized,
 )
-from dynak.standup.stand_random import (
+from dynak.standup.stand_switch import (
     BB_PARAMETER_KEY_TAG,
     CONTROLLER_PROBABILITIES,
     PD_PARAMETER_KEY_TAG,
     controller_switch_steps,
-    get_random_controller_indices,
-    stand_random,
+    get_switch_controller_indices,
+    stand_switch,
 )
 from kinetix.environment import ObservationType
 from kinetix.util import load_from_json_file
@@ -76,6 +76,41 @@ class TestStandupControllers(unittest.TestCase):
             jax.random.PRNGKey(0),
         )
         np.testing.assert_array_equal(np.asarray(torque), np.zeros(3))
+
+    def test_pd_and_bang_bang_have_no_random_cutout(self):
+        episode_key = jax.random.PRNGKey(4)
+        period_steps = int(controller_switch_steps(self.static_env_params))
+        near_target = self.state.replace(
+            polygon=self.state.polygon.replace(
+                rotation=self.state.polygon.rotation.at[6].set(1.5)
+            )
+        )
+
+        for controller_name, direct_controller in (
+            ("pd", stand_pd),
+            ("bang_bang", stand_bb),
+        ):
+            with self.subTest(controller=controller_name):
+                _, controller = resolve_underlying_controller(
+                    controller_name,
+                    pd_gain_randomization_fraction=0.0,
+                    bang_bang_torque_randomization_fraction=0.0,
+                    controller_torque_noise_std_nm=0.0,
+                )
+                expected = direct_controller(near_target, self.static_env_params)
+                for period_index in range(12):
+                    state = near_target.replace(
+                        timestep=jnp.asarray(
+                            period_index * period_steps,
+                            dtype=jnp.int32,
+                        )
+                    )
+                    actual = controller(
+                        state,
+                        self.static_env_params,
+                        episode_key,
+                    )
+                    np.testing.assert_allclose(actual, expected, atol=1e-6)
 
     def test_controller_parameters_are_randomized_once_per_episode(self):
         first_key = jax.random.PRNGKey(1)
@@ -188,7 +223,7 @@ class TestStandupControllers(unittest.TestCase):
             np.all(np.asarray(bb_torque) <= BB_TORQUE * (1.0 + randomization_fraction))
         )
 
-    def test_random_controller_switches_independently_per_joint(self):
+    def test_switch_controller_selects_independently_per_joint(self):
         switch_key = jax.random.PRNGKey(17)
         steps_per_period = int(controller_switch_steps(self.static_env_params))
         np.testing.assert_allclose(
@@ -200,12 +235,12 @@ class TestStandupControllers(unittest.TestCase):
         period_end = self.state.replace(
             timestep=jnp.asarray(steps_per_period - 1, dtype=jnp.int32)
         )
-        start_choices = get_random_controller_indices(
+        start_choices = get_switch_controller_indices(
             period_start,
             self.static_env_params,
             switch_key,
         )
-        end_choices = get_random_controller_indices(
+        end_choices = get_switch_controller_indices(
             period_end,
             self.static_env_params,
             switch_key,
@@ -224,7 +259,7 @@ class TestStandupControllers(unittest.TestCase):
             states_by_period.append(state)
             choices_by_period.append(
                 np.asarray(
-                    get_random_controller_indices(
+                    get_switch_controller_indices(
                         state,
                         self.static_env_params,
                         switch_key,
@@ -259,7 +294,7 @@ class TestStandupControllers(unittest.TestCase):
             )
         )
         expected = candidate_torques[mixed_choices, np.arange(3)]
-        actual = stand_random(
+        actual = stand_switch(
             mixed_state,
             self.static_env_params,
             switch_key,
@@ -272,9 +307,11 @@ class TestStandupControllers(unittest.TestCase):
             "stand_pd": "pd",
             "bb": "bang_bang",
             "stand-bb": "bang_bang",
-            "random": "random",
-            "random-switch": "random",
-            "mixed": "random",
+            "switch": "switch",
+            "stand-switch": "switch",
+            "random": "switch",
+            "random-switch": "switch",
+            "mixed": "switch",
             "none": "none",
             "no_controller": "none",
         }

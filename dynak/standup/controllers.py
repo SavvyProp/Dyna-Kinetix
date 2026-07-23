@@ -19,7 +19,7 @@ from dynak.standup.stand_pd import (
     NUM_STANDUP_JOINTS,
     stand_pd_randomized,
 )
-from dynak.standup.stand_random import stand_random
+from dynak.standup.stand_switch import stand_switch
 from kinetix.environment.env_state import EnvState, StaticEnvParams
 
 StandupController = Callable[[EnvState, StaticEnvParams, jax.Array], jax.Array]
@@ -31,7 +31,7 @@ class UnderlyingControllerType(Enum):
     NONE = "none"
     PD = "pd"
     BANG_BANG = "bang_bang"
-    RANDOM = "random"
+    SWITCH = "switch"
 
     @classmethod
     def from_string(cls, value: str) -> "UnderlyingControllerType":
@@ -45,10 +45,12 @@ class UnderlyingControllerType(Enum):
             "bang_bang": cls.BANG_BANG,
             "bb": cls.BANG_BANG,
             "stand_bb": cls.BANG_BANG,
-            "random": cls.RANDOM,
-            "random_switch": cls.RANDOM,
-            "switching": cls.RANDOM,
-            "mixed": cls.RANDOM,
+            "switch": cls.SWITCH,
+            "stand_switch": cls.SWITCH,
+            "random": cls.SWITCH,
+            "random_switch": cls.SWITCH,
+            "switching": cls.SWITCH,
+            "mixed": cls.SWITCH,
         }
         try:
             return aliases[normalized]
@@ -99,7 +101,7 @@ def bang_bang_controller(
     )
 
 
-def random_controller(
+def switch_controller(
     state,
     static_env_params,
     episode_key,
@@ -110,7 +112,7 @@ def random_controller(
     torque_noise_std_nm: float = DEFAULT_CONTROLLER_TORQUE_NOISE_STD_NM,
 ):
     """Apply the per-joint switching controller with randomized parameters."""
-    return stand_random(
+    return stand_switch(
         state,
         static_env_params,
         episode_key,
@@ -124,7 +126,7 @@ BUILTIN_CONTROLLERS: dict[UnderlyingControllerType, StandupController] = {
     UnderlyingControllerType.NONE: no_controller,
     UnderlyingControllerType.PD: pd_controller,
     UnderlyingControllerType.BANG_BANG: bang_bang_controller,
-    UnderlyingControllerType.RANDOM: random_controller,
+    UnderlyingControllerType.SWITCH: switch_controller,
 }
 
 ControllerSpec = Union[str, UnderlyingControllerType, StandupController]
@@ -168,9 +170,9 @@ def resolve_underlying_controller(
                 torque_randomization_fraction=(bang_bang_torque_randomization_fraction),
                 torque_noise_std_nm=controller_torque_noise_std_nm,
             )
-        elif controller is UnderlyingControllerType.RANDOM:
+        elif controller is UnderlyingControllerType.SWITCH:
             controller_function = partial(
-                random_controller,
+                switch_controller,
                 pd_gain_randomization_fraction=(pd_gain_randomization_fraction),
                 bang_bang_torque_randomization_fraction=(
                     bang_bang_torque_randomization_fraction

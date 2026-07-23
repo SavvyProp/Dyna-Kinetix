@@ -46,7 +46,7 @@ compact and converted back to `[0, 1]` floats by the training loader.
 
 PD proportional and derivative gains, and bang-bang torque magnitudes, are
 sampled independently per joint and held fixed for an episode. Their default
-uniform range is 80% to 120% of the nominal values. The random-switching
+uniform range is 80% to 120% of the nominal values. The switch
 environment uses the same episode parameters when it selects PD or bang-bang
 for a joint. These fractions are saved in dataset and flow-checkpoint metadata.
 Set `pd_gain_randomization_fraction` or
@@ -122,7 +122,7 @@ sampling another chunk. The default is one-step receding-horizon evaluation;
 the option is bounded by the checkpoint's action horizon.
 
 By default, every reset randomly selects one of the four residual environments:
-no controller, PD, bang-bang, or independently switching random control. Use
+no controller, PD, bang-bang, or independent per-joint switch control. Use
 `R` for another random environment, `C` to cycle, or keys `1` through `4` to
 select directly. For an unattended visual sequence:
 
