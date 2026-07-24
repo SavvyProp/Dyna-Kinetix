@@ -21,6 +21,26 @@
         <img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset-ffcc66" /></a>
 </p>
 
+# Dyna-Kinetix Notes
+This repo is a modification of kinetix to allow for 1) Continuous action torque, 2) Custom environment with termination conditions, 3) RTC Flow matching learning https://arxiv.org/pdf/2506.07339. The intent is that the underlying kinetix code is minimally modified, with all additions occuring in /dynak. /scripts contain various interfaces for running general scripts and shell scripts. 
+
+## Install
+```
+python -m pip install --upgrade pip setuptools wheel
+
+python -m pip install --upgrade \
+  "jax[cuda12]>=0.4.37,<=0.9.0"
+
+python -m pip install -e ".[dev]"
+pre-commit install
+```
+
+## Environment
+dynak/standup contains the residual_torque_env, which can take various underlying controllers in dynak/standup/stand_bb, or stand_pd. Underlying controller configs can be found in the header of the python file. The environment contains code changes while the main environment is in kinetix/levels/l/standup_goal.json
+
+## Execution
+The scripts can be executed in scripts/. simulate_standup.py launches an interactive pygame version of the level. train_residual_standup_\*.py trains RL policies on various environment variations. eval_residual_standup_\*.py evaluates learned policies in checkpoints. collect_imitaion_rollouts_\*.py runs the RL policy for 200 successes and save it in checkpoints. train_flow_action_chunking.py trains the flow matching with eval_flow_action_chunking.py evaluating the policy. The evaluations launch interactive pygame environments.
+
 ### <b>Update: We've released a large offline dataset of expert trajectories [here](https://huggingface.co/datasets/mbeukman/Kinetix-Offline)!</b>
 
 # Kinetix
