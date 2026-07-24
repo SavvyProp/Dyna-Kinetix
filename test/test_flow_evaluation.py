@@ -21,7 +21,12 @@ from dynak.imitation_rollout import (
 from kinetix.util.saving import load_from_json_file
 
 
-def make_checkpoint(image_shape, frame_stack=2, action_horizon=2):
+def make_checkpoint(
+    image_shape,
+    frame_stack=2,
+    action_horizon=2,
+    prediction_target=None,
+):
     config = FlowModelConfig(
         action_horizon=action_horizon,
         frame_stack=frame_stack,
@@ -42,14 +47,17 @@ def make_checkpoint(image_shape, frame_stack=2, action_horizon=2):
         actions,
         jnp.zeros((1,), dtype=jnp.float32),
     )["params"]
+    data_config = {
+        "observation_inputs": ["image"],
+        "image_shape": list(image_shape),
+        "residual_torque_limit_nm": 5.0,
+    }
+    if prediction_target is not None:
+        data_config["prediction_target"] = prediction_target
     return {
         "params": params,
         "model_config": asdict(config),
-        "data_config": {
-            "observation_inputs": ["image"],
-            "image_shape": list(image_shape),
-            "residual_torque_limit_nm": 5.0,
-        },
+        "data_config": data_config,
     }
 
 
@@ -74,6 +82,7 @@ class TestFlowEvaluation(unittest.TestCase):
         self.assertEqual(policy.pd_gain_randomization_fraction, 0.2)
         self.assertEqual(policy.bang_bang_torque_randomization_fraction, 0.2)
         self.assertEqual(policy.controller_torque_noise_std_nm, 0.2)
+        self.assertEqual(policy.prediction_target, "residual_torque_nm")
         np.testing.assert_allclose(np.asarray(history[0]), 0.0)
         np.testing.assert_allclose(np.asarray(history[1]), 1.0)
         self.assertEqual(residual_torque.shape, (1, 3))
@@ -127,8 +136,35 @@ class TestFlowEvaluation(unittest.TestCase):
             "pd",
         )
 
-        self.assertEqual(no_controller_env.residual_torque_limit_nm, 10.0)
-        self.assertEqual(pd_env.residual_torque_limit_nm, 5.0)
+        self.assertEqual(no_controller_env.residual_torque_limit_nm, 20.0)
+        self.assertEqual(pd_env.residual_torque_limit_nm, 10.0)
+
+    def test_full_torque_checkpoint_does_not_add_pd_controller_torque(self):
+        initial_level, static_env_params, env_params = load_from_json_file(
+            "l/standup_goal.json"
+        )
+        image_shape = tuple(
+            dimension // static_env_params.downscale
+            for dimension in static_env_params.screen_dim
+        ) + (3,)
+        checkpoint = make_checkpoint(
+            image_shape,
+            frame_stack=1,
+            prediction_target="total_torque_nm",
+        )
+        checkpoint["data_config"]["torque_normalization_limit_nm"] = 20.0
+        policy = flow_policy_from_checkpoint(checkpoint)
+
+        pd_labeled_env = make_flow_evaluation_env(
+            policy,
+            initial_level,
+            static_env_params,
+            env_params,
+            "pd",
+        )
+
+        self.assertEqual(pd_labeled_env.underlying_controller_name, "none")
+        self.assertEqual(pd_labeled_env.residual_torque_limit_nm, 20.0)
 
     def test_batched_rollout_reuses_chunk_for_execute_horizon(self):
         initial_level, static_env_params, env_params = load_from_json_file(

@@ -1,4 +1,4 @@
-"""Train an image-conditioned flow policy on residual standup rollouts."""
+"""Train an image-conditioned full-torque flow policy on standup rollouts."""
 
 from __future__ import annotations
 
@@ -30,14 +30,13 @@ from kinetix.util.saving import save_params
 
 DEFAULT_DATASET_ROOT = Path("checkpoints/dynak/imitation_rollouts")
 DEFAULT_OUTPUT_DIR = Path("checkpoints/dynak/flow_action_chunking")
-DEFAULT_CONTROLLERS = ("no_controller", "pd", "bang_bang")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Train a CNN-conditioned rectified-flow model that predicts "
-            "residual-torque action chunks from rollout images."
+            "full applied-torque action chunks from rollout images."
         )
     )
     parser.add_argument(
@@ -49,8 +48,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--controllers",
         nargs="+",
-        default=list(DEFAULT_CONTROLLERS),
-        help="Controller dataset directories to combine.",
+        default=None,
+        help=(
+            "Controller dataset directories to combine. By default, use every "
+            "available dataset among no_controller, pd, and bang_bang."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -71,12 +73,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--frame-stack", type=int, default=1)
     parser.add_argument("--action-horizon", type=int, default=8)
     parser.add_argument(
+        "--torque-limit-nm",
         "--residual-torque-limit-nm",
+        dest="residual_torque_limit_nm",
         type=float,
-        default=10.0,
+        default=20.0,
         help=(
-            "Shared action normalization range. It must cover the largest "
-            "controller dataset limit (default: %(default)s)."
+            "Shared full-torque action normalization range " "(default: %(default)s)."
         ),
     )
     parser.add_argument("--learning-rate", type=float, default=3e-4)
@@ -182,6 +185,8 @@ def _checkpoint_payload(
             "frame_stack": dataset.frame_stack,
             "action_horizon": dataset.action_horizon,
             "action_dim": dataset.action_dim,
+            "torque_normalization_limit_nm": dataset.residual_torque_limit_nm,
+            # Retained so older evaluation code can still load new checkpoints.
             "residual_torque_limit_nm": dataset.residual_torque_limit_nm,
             "pd_gain_randomization_fraction": (dataset.pd_gain_randomization_fraction),
             "bang_bang_torque_randomization_fraction": (
@@ -190,7 +195,7 @@ def _checkpoint_payload(
             "controller_torque_noise_std_nm": (dataset.controller_torque_noise_std_nm),
             "shard_reuse_batches": dataset.shard_reuse_batches,
             "observation_inputs": ["image"],
-            "prediction_target": "residual_torque_nm",
+            "prediction_target": "total_torque_nm",
         },
         "training_config": {
             "epochs": args.epochs,
@@ -210,12 +215,14 @@ def _checkpoint_payload(
 def train(args: argparse.Namespace) -> Path:
     """Train the model and return the final checkpoint path."""
     train_dataset = _make_dataset(args, "train")
+    if args.controllers is None:
+        args.controllers = list(train_dataset.controllers)
     validation_dataset = (
         _make_dataset(args, "validation") if args.validation_fraction > 0.0 else None
     )
     if train_dataset.action_dim != 3:
         raise ValueError(
-            "Residual standup currently expects three motor actions; "
+            "Standup currently expects three motor actions; "
             f"dataset contains {train_dataset.action_dim}"
         )
 

@@ -1,4 +1,4 @@
-"""CNN-conditioned flow matching for residual-torque action chunks."""
+"""CNN-conditioned flow matching for full-torque action chunks."""
 
 from dynak.flow_action_chunking.dataset import (
     ActionChunkBatch,

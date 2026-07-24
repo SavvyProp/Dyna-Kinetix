@@ -448,7 +448,9 @@ def import_env_state_from_json(json_file: dict[str, Any]) -> tuple[EnvState, Sta
     return (
         env_state_target,
         new_static_env_params,
-        new_env_params.replace(max_timesteps=env_params_target.max_timesteps),
+        # Preserve the episode horizon stored by the level. Previously every
+        # JSON level was silently forced back to EnvParams' 256-step default.
+        new_env_params,
     )
 
 

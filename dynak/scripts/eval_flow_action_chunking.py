@@ -1,4 +1,4 @@
-"""Visualize the flow action-chunk policy across residual standup variants."""
+"""Visualize the flow action-chunk standup policy."""
 
 from __future__ import annotations
 
@@ -136,6 +136,13 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     checkpoint_path = resolve_checkpoint_path(args.checkpoint)
     policy = load_flow_policy_checkpoint(checkpoint_path)
+    if policy.prediction_target == "total_torque_nm":
+        if args.controllers != ["none"]:
+            print(
+                "This checkpoint predicts full applied torque; evaluating in "
+                "the standalone no-controller environment."
+            )
+        args.controllers = ["none"]
     if args.execute_horizon > policy.model_config.action_horizon:
         raise ValueError(
             "--execute-horizon cannot exceed checkpoint horizon "
@@ -192,7 +199,7 @@ def main(argv: list[str] | None = None) -> None:
     rng, reset_key = jax.random.split(rng)
     print(f"Loading flow policy from {checkpoint_path}")
     print(
-        "Compiling flow inference and the first residual environment. "
+        "Compiling flow inference and the first standup environment. "
         "Other controller variants compile when first selected..."
     )
     observation, state, image_history = reset_episode(controller, reset_key)
@@ -301,14 +308,14 @@ def main(argv: list[str] | None = None) -> None:
                     action_key,
                 )
                 action_chunk_normalized = np.asarray(action_chunk_batch[0])
-            residual_command_nm = (
+            torque_command_nm = (
                 action_chunk_normalized[chunk_action_index]
                 * policy.residual_torque_limit_nm
             )
             observation, state, reward, step_done, info = steps[controller](
                 step_key,
                 state,
-                residual_command_nm,
+                torque_command_nm,
                 env_params,
             )
             image_history = append_image_history(
@@ -361,7 +368,7 @@ def main(argv: list[str] | None = None) -> None:
         underlying_text = np.asarray(underlying_torque_nm).round(2).tolist()
         total_text = np.asarray(total_torque_nm).round(2).tolist()
         pygame.display.set_caption(
-            f"Flow residual standup | {status} | controller={controller} | "
+            f"Flow standup | {status} | controller={controller} | "
             f"step={int(state.timestep)} | return={episode_return:.3f} | "
             f"reward={step_reward:.3f} | residual={residual_text} | "
             f"underlying={underlying_text} | total={total_text} | "

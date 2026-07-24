@@ -17,9 +17,9 @@ class ActionChunkBatch(NamedTuple):
     """One behavior-cloning batch.
 
     Images have shape ``(B, frame_stack, height, width, 3)`` and values in
-    ``[0, 1]``. Actions have shape ``(B, horizon, action_dim)`` and are
-    normalized by the configured residual torque limit. ``action_mask`` is
-    false for action tokens padded past episode termination.
+    ``[0, 1]``. Actions are full applied torques with shape
+    ``(B, horizon, action_dim)``, normalized by the configured torque limit.
+    ``action_mask`` is false for action tokens padded past episode termination.
     """
 
     images: np.ndarray
@@ -39,24 +39,25 @@ class _ShardSelection:
 
 
 class PixelActionChunkDataset:
-    """Sample complete image histories and residual-torque chunks.
+    """Sample complete image histories and full applied-torque chunks.
 
     Controller directories are sampled uniformly, so one controller cannot
     dominate training merely because it produced longer or more numerous
     episodes. Within a controller, starts are sampled approximately uniformly
-    over its valid transitions.
+    over its valid transitions. When ``controllers`` is omitted, the available
+    standard controller datasets are discovered from their manifests.
     """
 
     def __init__(
         self,
         dataset_root: str | Path,
-        controllers: Sequence[str] = DEFAULT_CONTROLLERS,
+        controllers: Sequence[str] | None = None,
         *,
         split: str = "train",
         validation_fraction: float = 0.1,
         frame_stack: int = 1,
         action_horizon: int = 8,
-        residual_torque_limit_nm: float = 10.0,
+        residual_torque_limit_nm: float = 20.0,
         cache_size: int = 3,
         shard_reuse_batches: int = 32,
     ):
@@ -76,6 +77,13 @@ class PixelActionChunkDataset:
             raise ValueError("shard_reuse_batches must be greater than zero")
 
         self.dataset_root = Path(dataset_root).expanduser().resolve()
+        if controllers is None:
+            controllers = tuple(
+                controller
+                for controller in DEFAULT_CONTROLLERS
+                if (self.dataset_root / controller / "manifest.json").is_file()
+                and any((self.dataset_root / controller).glob("shard_*.npz"))
+            )
         self.controllers = tuple(controllers)
         self.split = split
         self.validation_fraction = float(validation_fraction)
@@ -92,7 +100,11 @@ class PixelActionChunkDataset:
         self.controller_torque_noise_std_nm: float | None = None
 
         if not self.controllers:
-            raise ValueError("At least one controller dataset is required")
+            raise ValueError(
+                "No controller datasets were found. Expected at least one of "
+                f"{DEFAULT_CONTROLLERS} below {self.dataset_root}, or pass "
+                "controllers explicitly."
+            )
 
         image_shape = None
         action_dim = None
@@ -166,13 +178,16 @@ class PixelActionChunkDataset:
         manifest = json.loads(manifest_path.read_text())
         manifest_torque_limit_nm = float(
             manifest.get(
-                "residual_torque_limit_nm",
-                self.residual_torque_limit_nm,
+                "total_torque_limit_nm",
+                manifest.get(
+                    "residual_torque_limit_nm",
+                    self.residual_torque_limit_nm,
+                ),
             )
         )
         if manifest_torque_limit_nm > self.residual_torque_limit_nm:
             raise ValueError(
-                f"{controller_dir} was collected with residual_torque_limit_nm="
+                f"{controller_dir} was collected with total_torque_limit_nm="
                 f"{manifest_torque_limit_nm}, which exceeds the dataset "
                 f"normalization limit {self.residual_torque_limit_nm}"
             )
@@ -198,13 +213,13 @@ class PixelActionChunkDataset:
             if not path.is_file():
                 raise FileNotFoundError(f"Manifest references missing shard: {path}")
             with np.load(path, allow_pickle=False) as shard:
-                required = {"image", "residual_torque_nm", "episode_length"}
+                required = {"image", "total_torque_nm", "episode_length"}
                 missing = required.difference(shard.files)
                 if missing:
                     raise ValueError(f"{path} is missing fields: {sorted(missing)}")
                 lengths = np.asarray(shard["episode_length"], dtype=np.int32)
                 current_image_shape = tuple(shard["image"].shape[2:])
-                current_action_dim = int(shard["residual_torque_nm"].shape[-1])
+                current_action_dim = int(shard["total_torque_nm"].shape[-1])
             if np.any(lengths <= 0):
                 raise ValueError(f"{path} contains an empty episode")
             if image_shape is None:
@@ -267,8 +282,8 @@ class PixelActionChunkDataset:
         with np.load(path, allow_pickle=False) as shard:
             cached = {
                 "image": np.asarray(shard["image"]),
-                "residual_torque_nm": np.asarray(
-                    shard["residual_torque_nm"],
+                "total_torque_nm": np.asarray(
+                    shard["total_torque_nm"],
                     dtype=np.float32,
                 ),
             }
@@ -336,7 +351,7 @@ class PixelActionChunkDataset:
             action_indices,
             episode_lengths[:, None] - 1,
         )
-        actions = shard["residual_torque_nm"][
+        actions = shard["total_torque_nm"][
             episode_indices[:, None],
             safe_action_indices,
         ]

@@ -44,8 +44,8 @@ env_size:
 
 learning:
   # 256 PPO updates: 64 environments x 64 steps x 256 = 1,048,576.
-  total_timesteps: 1048576
-  num_train_envs: 64
+  total_timesteps: 67108864
+  num_train_envs: 512
   num_steps: 64
   num_minibatches: 8
   update_epochs: 4

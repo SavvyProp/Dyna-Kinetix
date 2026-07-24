@@ -69,6 +69,9 @@ class TestResidualTorqueGoal(unittest.TestCase):
         self.assertEqual(len(goal_regions), 1)
         self.assertEqual(goal_regions[0]["collision_mode"], 0)
 
+    def test_episode_horizon_is_512_steps(self):
+        self.assertEqual(int(self.env_params.max_timesteps), 512)
+
     def test_goal_uses_containment_instead_of_collision(self):
         outside, steady, _, _ = self.env._standup_goal_metrics(self.state)
         self.assertFalse(bool(outside))

@@ -27,6 +27,7 @@ def write_controller_dataset(
     root: Path,
     controller: str,
     residual_torque_limit_nm: float | None = None,
+    total_torque_limit_nm: float | None = None,
 ) -> None:
     controller_dir = root / controller
     controller_dir.mkdir(parents=True)
@@ -35,19 +36,29 @@ def write_controller_dataset(
     lengths = np.asarray([3, 4, 5, 6], dtype=np.int32)
     image = np.zeros((num_episodes, max_timesteps, 32, 32, 3), dtype=np.uint8)
     residual_torque = np.zeros((num_episodes, max_timesteps, 3), dtype=np.float32)
+    underlying_torque = np.zeros_like(residual_torque)
     controller_offset = CONTROLLERS.index(controller) * 0.25
+    underlying_offset = {
+        "no_controller": 0.0,
+        "pd": 1.0,
+        "bang_bang": -0.5,
+    }[controller]
     for episode_index in range(num_episodes):
         for timestep in range(max_timesteps):
             image[episode_index, timestep] = 10 * episode_index + timestep
             residual_torque[episode_index, timestep] = (
                 controller_offset + 0.1 * timestep
             )
+            underlying_torque[episode_index, timestep] = underlying_offset
+    total_torque = residual_torque + underlying_torque
 
     shard_name = "shard_00000.npz"
     np.savez_compressed(
         controller_dir / shard_name,
         image=image,
         residual_torque_nm=residual_torque,
+        underlying_torque_nm=underlying_torque,
+        total_torque_nm=total_torque,
         episode_length=lengths,
     )
     manifest = {
@@ -69,11 +80,13 @@ def write_controller_dataset(
     }
     if residual_torque_limit_nm is not None:
         manifest["residual_torque_limit_nm"] = residual_torque_limit_nm
+    if total_torque_limit_nm is not None:
+        manifest["total_torque_limit_nm"] = total_torque_limit_nm
     (controller_dir / "manifest.json").write_text(json.dumps(manifest))
 
 
-def write_datasets(root: Path) -> None:
-    for controller in CONTROLLERS:
+def write_datasets(root: Path, controllers=CONTROLLERS) -> None:
+    for controller in controllers:
         write_controller_dataset(root, controller)
 
 
@@ -81,9 +94,9 @@ class TestFlowActionChunking(unittest.TestCase):
     def test_shared_normalization_accepts_smaller_controller_limits(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            write_controller_dataset(root, "no_controller", 10.0)
-            write_controller_dataset(root, "pd", 5.0)
-            write_controller_dataset(root, "bang_bang", 5.0)
+            write_controller_dataset(root, "no_controller", 10.0, 10.0)
+            write_controller_dataset(root, "pd", 5.0, 10.0)
+            write_controller_dataset(root, "bang_bang", 5.0, 10.0)
 
             dataset = PixelActionChunkDataset(
                 root,
@@ -96,6 +109,49 @@ class TestFlowActionChunking(unittest.TestCase):
                     root,
                     residual_torque_limit_nm=5.0,
                 )
+
+    def test_pd_targets_are_full_residual_plus_underlying_torque(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            write_controller_dataset(root, "pd")
+            dataset = PixelActionChunkDataset(
+                root,
+                controllers=("pd",),
+                validation_fraction=0.0,
+                action_horizon=1,
+                residual_torque_limit_nm=20.0,
+            )
+            batch = dataset.sample_batch(32, np.random.default_rng(3))
+
+            timesteps = np.rint(batch.images[:, 0, 0, 0, 0] * 255).astype(int) % 10
+            expected = 1.25 + 0.1 * timesteps
+            np.testing.assert_allclose(
+                batch.actions[:, 0, 0] * 20.0,
+                expected,
+                rtol=1e-5,
+                atol=1e-5,
+            )
+
+    def test_controller_discovery_does_not_require_no_controller(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            write_datasets(root, ("pd", "bang_bang"))
+            empty_no_controller = root / "no_controller"
+            empty_no_controller.mkdir()
+            (empty_no_controller / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "controller": "no_controller",
+                        "observation_type": "pixels",
+                        "successful_episodes": 0,
+                        "shards": [],
+                    }
+                )
+            )
+
+            dataset = PixelActionChunkDataset(root)
+
+            self.assertEqual(dataset.controllers, ("pd", "bang_bang"))
 
     def test_pixel_dataset_produces_masked_normalized_chunks(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -184,7 +240,7 @@ class TestFlowActionChunking(unittest.TestCase):
             root = Path(temporary_directory)
             dataset_root = root / "rollouts"
             output_dir = root / "checkpoint"
-            write_datasets(dataset_root)
+            write_datasets(dataset_root, ("pd", "bang_bang"))
             args = parse_args(
                 [
                     "--dataset-root",
@@ -230,7 +286,7 @@ class TestFlowActionChunking(unittest.TestCase):
             self.assertEqual(checkpoint["model_config"]["action_horizon"], 8)
             self.assertEqual(
                 checkpoint["data_config"]["controllers"],
-                list(CONTROLLERS),
+                ["pd", "bang_bang"],
             )
             self.assertEqual(
                 checkpoint["data_config"]["observation_inputs"],
@@ -238,7 +294,15 @@ class TestFlowActionChunking(unittest.TestCase):
             )
             self.assertEqual(
                 checkpoint["data_config"]["residual_torque_limit_nm"],
-                10.0,
+                20.0,
+            )
+            self.assertEqual(
+                checkpoint["data_config"]["torque_normalization_limit_nm"],
+                20.0,
+            )
+            self.assertEqual(
+                checkpoint["data_config"]["prediction_target"],
+                "total_torque_nm",
             )
             self.assertEqual(
                 checkpoint["data_config"]["pd_gain_randomization_fraction"],

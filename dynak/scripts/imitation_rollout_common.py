@@ -27,7 +27,7 @@ from kinetix.util import normalise_config
 from kinetix.util.saving import load_from_json_file, load_params
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 DEFAULT_LEVEL = "l/standup_goal.json"
 DEFAULT_OUTPUT_ROOT = Path("checkpoints/dynak/imitation_rollouts")
 CONTROLLER_ORDER = ("no_controller", "pd", "bang_bang")
@@ -276,6 +276,7 @@ def initial_manifest(
         **observation_metadata,
         "action_dim": 3,
         "residual_torque_limit_nm": float(config["residual_torque_limit_nm"]),
+        "total_torque_limit_nm": float(config["total_torque_limit_nm"]),
         "pd_gain_randomization_fraction": float(
             config.get("pd_gain_randomization_fraction", 0.2)
         ),
@@ -336,6 +337,7 @@ def validate_resume_manifest(
         "observation_shape",
         "action_dim",
         "residual_torque_limit_nm",
+        "total_torque_limit_nm",
         "pd_gain_randomization_fraction",
         "bang_bang_torque_randomization_fraction",
         "controller_torque_noise_std_nm",

@@ -83,14 +83,14 @@ speed is reported as a rollout diagnostic but does not affect success.
 Collection uses these current criteria even when an older PPO checkpoint
 contains the previous stricter values.
 
-The controller torques are retained for analysis only. The imitation policy
-does not receive controller identity, underlying torque, total torque, or
-symbolic simulator state. It learns to predict `residual_torque_nm` chunks
-from the same rendered observation modality used by the pixel PPO experts.
-Residual policy actions are bounded to +/-10 N*m without an underlying
-controller and +/-5 N*m for PD, bang-bang, and switch. Each limit is stored in
-the rollout manifest. Joint flow training uses +/-10 N*m as its shared
-normalization range so it can represent every dataset without clipping.
+The imitation policy does not receive controller identity, underlying torque,
+or symbolic simulator state. Its input is only the same rendered observation
+modality used by the pixel PPO experts. Its training target is the full applied
+joint torque stored as `total_torque_nm`: residual plus underlying PD or
+bang-bang torque after the environment's final clipping. For the no-controller
+dataset this is naturally identical to the residual torque. Joint flow
+training uses +/-20 N*m as its shared normalization range, matching the final
+environment torque limit.
 
 Collection samples from the PPO action distribution by default. Use
 `--deterministic` for evaluation or debugging. Interrupted collection can be
@@ -98,16 +98,18 @@ continued with `--resume`.
 
 ## Flow matching training
 
-After collecting all three datasets, train the joint image-conditioned flow
-policy with:
+After collecting any of the no-controller, PD, and bang-bang datasets, train
+the joint image-conditioned flow policy with:
 
 ```bash
 conda run -n dynk python dynak/scripts/train_flow_action_chunking.py
 ```
 
-The defaults use an eight-action horizon, controller-balanced batches, a CNN
-image encoder, four time-conditioned MLP-Mixer blocks, and the conditional
-rectified-flow objective. Checkpoints and per-epoch metrics are written to:
+Available controller directories are discovered automatically, so training
+also works when no `no_controller` examples exist. The defaults use an
+eight-action horizon, controller-balanced batches, a CNN image encoder, four
+time-conditioned MLP-Mixer blocks, and the conditional rectified-flow
+objective. Checkpoints and per-epoch metrics are written to:
 
 ```text
 checkpoints/dynak/flow_action_chunking/
@@ -138,7 +140,7 @@ through the dataset.
 
 ## Visual flow evaluation
 
-To replan an action chunk at every step and execute its first residual torque:
+To replan an action chunk at every step and execute its first full torque:
 
 ```bash
 conda run -n dynk python dynak/scripts/eval_flow_action_chunking.py
@@ -148,10 +150,10 @@ Set `--execute-horizon N` to execute the first `N` actions open-loop before
 sampling another chunk. The default is one-step receding-horizon evaluation;
 the option is bounded by the checkpoint's action horizon.
 
-By default, every reset randomly selects one of the four residual environments:
-no controller, PD, bang-bang, or independent per-joint switch control. Use
-`R` for another random environment, `C` to cycle, or keys `1` through `4` to
-select directly. For an unattended visual sequence:
+Full-torque checkpoints run in the standalone no-controller environment; this
+prevents adding PD or bang-bang torque a second time. Older checkpoints whose
+metadata says they predict residual torque retain the original four-controller
+evaluation behavior. For an unattended visual sequence:
 
 ```bash
 conda run -n dynk python dynak/scripts/eval_flow_action_chunking.py \

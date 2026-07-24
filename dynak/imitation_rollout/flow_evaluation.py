@@ -1,4 +1,4 @@
-"""Reusable flow-policy inference and residual-environment rollout helpers."""
+"""Reusable flow-policy inference and standup-environment rollout helpers."""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ class LoadedFlowPolicy:
     model_config: FlowModelConfig
     image_shape: tuple[int, int, int]
     residual_torque_limit_nm: float
+    prediction_target: str
     pd_gain_randomization_fraction: float
     bang_bang_torque_randomization_fraction: float
     controller_torque_noise_std_nm: float
@@ -77,9 +78,17 @@ def flow_policy_from_checkpoint(checkpoint: dict[str, Any]) -> LoadedFlowPolicy:
     image_shape = tuple(int(value) for value in data_config["image_shape"])
     if len(image_shape) != 3 or image_shape[-1] != 3:
         raise ValueError(f"Invalid checkpoint image shape: {image_shape}")
-    residual_torque_limit_nm = float(data_config["residual_torque_limit_nm"])
+    torque_normalization_limit_nm = data_config.get("torque_normalization_limit_nm")
+    if torque_normalization_limit_nm is None:
+        torque_normalization_limit_nm = data_config["residual_torque_limit_nm"]
+    residual_torque_limit_nm = float(torque_normalization_limit_nm)
     if residual_torque_limit_nm <= 0:
-        raise ValueError("Checkpoint residual torque limit must be positive")
+        raise ValueError("Checkpoint torque normalization limit must be positive")
+    prediction_target = str(data_config.get("prediction_target", "residual_torque_nm"))
+    if prediction_target not in ("residual_torque_nm", "total_torque_nm"):
+        raise ValueError(
+            f"Unsupported flow checkpoint prediction_target={prediction_target!r}"
+        )
 
     return LoadedFlowPolicy(
         model=FlowMatchingPolicy(model_config),
@@ -87,6 +96,7 @@ def flow_policy_from_checkpoint(checkpoint: dict[str, Any]) -> LoadedFlowPolicy:
         model_config=model_config,
         image_shape=image_shape,
         residual_torque_limit_nm=residual_torque_limit_nm,
+        prediction_target=prediction_target,
         pd_gain_randomization_fraction=float(
             data_config.get(
                 "pd_gain_randomization_fraction",
@@ -144,7 +154,7 @@ def make_flow_batch_action_function(
     *,
     num_flow_steps: int = 5,
 ) -> Callable[[jax.Array, jax.Array], tuple[jax.Array, jax.Array]]:
-    """Return image-history to residual-action inference for any batch size.
+    """Return image-history to torque-action inference for any batch size.
 
     The returned pure function accepts float images shaped ``(B, F, H, W, 3)``
     and one JAX key. It returns the first torque to execute and the complete
@@ -178,8 +188,8 @@ def make_flow_batch_action_function(
             num_steps=num_flow_steps,
         )
         normalized_chunks = jnp.clip(normalized_chunks, -1.0, 1.0)
-        residual_torque_nm = normalized_chunks[:, 0] * policy.residual_torque_limit_nm
-        return residual_torque_nm, normalized_chunks
+        torque_nm = normalized_chunks[:, 0] * policy.residual_torque_limit_nm
+        return torque_nm, normalized_chunks
 
     return sample_action
 
@@ -202,17 +212,31 @@ def make_flow_evaluation_env(
         DEFAULT_GOAL_LINEAR_VELOCITY_THRESHOLD_MPS
     ),
 ):
-    """Construct one pixel residual environment for flow-policy evaluation."""
+    """Construct one pixel environment for flow-policy evaluation.
+
+    New checkpoints predict the complete applied torque and therefore execute
+    with no underlying controller. Older residual-target checkpoints retain
+    their original controller-specific execution behavior.
+    """
+    predicts_total_torque = policy.prediction_target == "total_torque_nm"
+    execution_controller = (
+        UnderlyingControllerType.NONE if predicts_total_torque else controller
+    )
+    action_torque_limit_nm = (
+        min(policy.residual_torque_limit_nm, total_torque_limit_nm)
+        if predicts_total_torque
+        else default_residual_torque_limit_nm(controller)
+    )
     return make_residual_torque_env(
         observation_type=ObservationType.PIXELS,
         reset_fn=lambda _rng: initial_level,
         env_params=env_params,
         static_env_params=static_env_params,
         auto_reset=False,
-        residual_torque_limit_nm=default_residual_torque_limit_nm(controller),
+        residual_torque_limit_nm=action_torque_limit_nm,
         total_torque_limit_nm=total_torque_limit_nm,
         energy_penalty_coefficient=energy_penalty_coefficient,
-        underlying_controller=controller,
+        underlying_controller=execution_controller,
         pd_gain_randomization_fraction=(
             policy.pd_gain_randomization_fraction
             if pd_gain_randomization_fraction is None
@@ -356,13 +380,13 @@ def make_batched_flow_rollout_function(
                     lambda unused_operand: previous_chunk,
                     operand=None,
                 )
-                residual_torque_nm = (
+                torque_command_nm = (
                     normalized_chunk[action_index] * policy.residual_torque_limit_nm
                 )
                 next_observation, next_state, reward, done, info = env.step(
                     step_key,
                     env_state,
-                    residual_torque_nm,
+                    torque_command_nm,
                     env_params,
                 )
                 next_history = append_image_history(
@@ -481,7 +505,11 @@ def make_controller_flow_rollout_functions(
     execute_horizon: int = 1,
     **environment_kwargs,
 ) -> dict[str, Callable[[jax.Array], dict[str, jax.Array]]]:
-    """Build reusable batched rollout functions for multiple controllers."""
+    """Build reusable batched rollout functions for multiple controller labels.
+
+    For full-torque checkpoints every returned function executes without an
+    underlying controller; the labels are retained for API compatibility.
+    """
     policy = (
         checkpoint
         if isinstance(checkpoint, LoadedFlowPolicy)

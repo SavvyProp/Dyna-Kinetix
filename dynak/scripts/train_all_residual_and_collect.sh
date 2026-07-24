@@ -8,3 +8,5 @@ python dynak/scripts/train_residual_standup_switch.py
 python dynak/scripts/collect_imitation_rollouts_no_controller.py --successes 200
 python dynak/scripts/collect_imitation_rollouts_pd.py --successes 200
 python dynak/scripts/collect_imitation_rollouts_bb.py --successes 200
+
+python dynak/scripts/train_flow_action_chunking.py
