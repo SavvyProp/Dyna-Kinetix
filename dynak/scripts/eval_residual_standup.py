@@ -35,15 +35,20 @@ from dynak.standup.residual_torque_env import (
 )
 
 DEFAULT_CHECKPOINT = Path("checkpoints/dynak/residual_standup/final.pbz2")
+DEFAULT_CONFIG_NAME = "residual_standup_ppo"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(
+    argv: list[str] | None = None,
+    *,
+    default_checkpoint: Path = DEFAULT_CHECKPOINT,
+) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "checkpoint",
         nargs="?",
         type=Path,
-        default=DEFAULT_CHECKPOINT,
+        default=default_checkpoint,
         help="Local full-model checkpoint (default: %(default)s).",
     )
     parser.add_argument(
@@ -61,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--paused", action="store_true")
     parser.add_argument("--stochastic", action="store_true")
     parser.add_argument("--max-steps", type=int)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.fps is not None and args.fps <= 0:
         parser.error("--fps must be greater than zero")
@@ -72,13 +77,13 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def load_default_config():
+def load_default_config(config_name: str = DEFAULT_CONFIG_NAME):
     """Compose the training config for older checkpoints without metadata."""
     with initialize_config_dir(
         version_base=None,
         config_dir=str(repository_root / "configs"),
     ):
-        hydra_config = compose(config_name="residual_standup_ppo")
+        hydra_config = compose(config_name=config_name)
     return normalise_config(
         OmegaConf.to_container(hydra_config, resolve=True),
         "ResidualStandupPPOEval",
@@ -115,11 +120,16 @@ def pixels_for_pygame(pixels) -> np.ndarray:
     return np.asarray(pixels, dtype=np.uint8)[:, ::-1, :]
 
 
-def main() -> None:
-    args = parse_args()
+def main(
+    argv: list[str] | None = None,
+    *,
+    default_checkpoint: Path = DEFAULT_CHECKPOINT,
+    default_config_name: str = DEFAULT_CONFIG_NAME,
+) -> None:
+    args = parse_args(argv, default_checkpoint=default_checkpoint)
     checkpoint_path = resolve_checkpoint_path(args.checkpoint)
     checkpoint = load_params(checkpoint_path)
-    default_config = load_default_config()
+    default_config = load_default_config(default_config_name)
     config = {**default_config, **(checkpoint.get("config") or {})}
     # Goal criteria are evaluation semantics rather than policy architecture.
     # Use the current task definition even for checkpoints trained before it

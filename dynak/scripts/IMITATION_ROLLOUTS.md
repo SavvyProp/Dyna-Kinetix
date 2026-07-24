@@ -1,5 +1,18 @@
 # Residual standup imitation rollouts
 
+Evaluate each residual PPO policy with its matching default checkpoint:
+
+```bash
+python dynak/scripts/eval_residual_standup_no_controller.py
+python dynak/scripts/eval_residual_standup_pd.py
+python dynak/scripts/eval_residual_standup_bb.py
+python dynak/scripts/eval_residual_standup_switch.py
+```
+
+Each evaluator accepts the same options as `eval_residual_standup.py`. For
+example, use `--stochastic`, `--paused`, or `--level l/standup_goal.json`. A
+different checkpoint can be supplied as the first positional argument.
+
 There is one collection script for each trained PPO expert:
 
 ```bash
