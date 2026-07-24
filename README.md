@@ -39,7 +39,7 @@ pre-commit install
 dynak/standup contains the residual_torque_env, which can take various underlying controllers in dynak/standup/stand_bb, or stand_pd. Underlying controller configs can be found in the header of the python file. The environment contains code changes while the main environment is in kinetix/levels/l/standup_goal.json
 
 ## Execution
-The scripts can be executed in scripts/. simulate_standup.py launches an interactive pygame version of the level. train_residual_standup_\*.py trains RL policies on various environment variations. eval_residual_standup_\*.py evaluates learned policies in checkpoints. collect_imitaion_rollouts_\*.py runs the RL policy for 200 successes and save it in checkpoints. train_flow_action_chunking.py trains the flow matching with eval_flow_action_chunking.py evaluating the policy. The evaluations launch interactive pygame environments.
+The scripts can be executed in scripts/. simulate_standup.py launches an interactive pygame version of the level. train_residual_standup_\*.py trains RL policies on various environment variations. eval_residual_standup_\*.py evaluates learned policies in checkpoints. collect_imitaion_rollouts_\*.py runs the RL policy for 200 successes and save it in checkpoints. train_flow_action_chunking.py trains the flow matching with eval_flow_action_chunking.py evaluating the policy. The evaluations launch interactive pygame environments. The shell script train_all_residual_and_collect.sh contains the script for the entire multi environment RL train, collect, and imitation learning pipeline.
 
 ### <b>Update: We've released a large offline dataset of expert trajectories [here](https://huggingface.co/datasets/mbeukman/Kinetix-Offline)!</b>
 
